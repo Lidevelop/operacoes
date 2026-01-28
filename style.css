@@ -57,10 +57,12 @@ body {
     margin-bottom: 2rem;
 }
 
-.login-header i {
-    font-size: 2.8rem;
-    color: var(--accent-color);
+.login-header img {
+    width: 73px;
+    height: 73px;
     margin-bottom: 0.8rem;
+    object-fit: contain;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
 }
 
 .login-header h1 {
@@ -239,8 +241,9 @@ header {
 }
 
 .logo-icon {
-    font-size: 2.8rem;
-    color: var(--accent-color);
+    width: 68px;
+    height: 68px;
+    object-fit: contain;
     filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
 }
 

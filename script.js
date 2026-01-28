@@ -626,7 +626,7 @@ function updateAgentsCards() {
         card.innerHTML = `
             <div class="card-row">
                 <span class="card-label">Classe:</span>
-                <span><input type="text" class="card-input" data-id="${row.id}" data-field="classe" value="${row.classe}" placeholder="Ex: PM3"></span>
+                <span><input type="text" class="card-input" data-id="${row.id}" data-field="classe" value="${row.classe}" placeholder="Ex: SUPERVISOR"></span>
             </div>
             <div class="card-row">
                 <span class="card-label">Nome de Guerra:</span>
@@ -765,7 +765,7 @@ function updateVehiclesCards() {
             </div>
             <div class="card-row">
                 <span class="card-label">Posto:</span>
-                <span><input type="text" class="card-input" data-id="${row.id}" data-field="post" value="${row.post}" placeholder="Ex: 1ª Cia"></span>
+                <span><input type="text" class="card-input" data-id="${row.id}" data-field="post" value="${row.post}" placeholder="Ex: RONDAC"></span>
             </div>
             <div class="card-row">
                 <span class="card-label">Tipo:</span>
@@ -1148,12 +1148,12 @@ function renderOperationsList(operations) {
     });
 
     operationsList.querySelectorAll('button[data-action="pdf"]').forEach(button => {
-        button.addEventListener('click', () => {
+        button.addEventListener('click', async () => {
             const id = button.getAttribute('data-id');
             const operation = operationsCache.find(item => item.id === id);
             if (operation) {
                 applyFormData(operation);
-                exportToPDF();
+                await exportToPDF();
             }
         });
     });
@@ -1306,7 +1306,16 @@ function clearForm() {
 }
 
 // Export to PDF with improved layout
-function exportToPDF() {
+function loadImage(src) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = src;
+    });
+}
+
+async function exportToPDF() {
     // Create PDF document in A4 format
     const doc = new jsPDF('p', 'mm', 'a4');
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -1411,32 +1420,41 @@ function exportToPDF() {
     const operationName = document.getElementById('operationName').value || 'Não informado';
     const cleanOperationName = operationName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
     
+    const logoImage = await loadImage('logo.jpg');
+
     // Add main header
     doc.setFillColor(30, 58, 95);
-    doc.rect(0, 0, pageWidth, 40, 'F');
+    doc.rect(0, 0, pageWidth, 55, 'F');
+
+    if (logoImage) {
+        const logoSize = 16;
+        const logoX = (pageWidth - logoSize) / 2;
+        const logoY = 6;
+        doc.addImage(logoImage, 'JPEG', logoX, logoY, logoSize, logoSize);
+    }
     
     // Title in white
     setTextColor(255, 255, 255);
     setFontSize(22);
     setFontStyle('bold');
-    doc.text('POLÍCIA MUNICIPAL DE ARACAJU', pageWidth / 2, 20, { align: 'center' });
+    doc.text('POLÍCIA MUNICIPAL DE ARACAJU', pageWidth / 2, 30, { align: 'center' });
     
     setFontSize(18);
-    doc.text('RELATÓRIO DE OPERAÇÃO', pageWidth / 2, 30, { align: 'center' });
+    doc.text('RELATÓRIO DE OPERAÇÃO', pageWidth / 2, 40, { align: 'center' });
     
     // Add generation date
     const now = new Date();
     const dateStr = now.toLocaleDateString('pt-BR');
     const timeStr = now.toLocaleTimeString('pt-BR');
     setFontSize(10);
-    doc.text(`Gerado em: ${dateStr} às ${timeStr}`, pageWidth - margin, 37, { align: 'right' });
+    doc.text(`Gerado em: ${dateStr} às ${timeStr}`, pageWidth - margin, 49, { align: 'right' });
     
     // Add decorative line
     doc.setDrawColor(201, 162, 39);
     doc.setLineWidth(2);
-    doc.line(margin, 45, pageWidth - margin, 45);
+    doc.line(margin, 60, pageWidth - margin, 60);
     
-    yPos = 55;
+    yPos = 70;
     
     // Function to add section with smaller spacing
     function addSection(title, content, isTable = false) {
