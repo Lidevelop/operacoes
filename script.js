@@ -1063,7 +1063,6 @@ async function loadOperationsList(force = false) {
     try {
         const snapshot = await db
             .collection('operations')
-            .where('ownerId', '==', auth.currentUser.uid)
             .orderBy('updatedAt', 'desc')
             .get();
 
