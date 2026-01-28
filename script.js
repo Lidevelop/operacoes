@@ -1041,11 +1041,11 @@ async function saveOperationToFirebase(formData) {
         }
 
         await docRef.set(payload, { merge: true });
-        saveStatus.textContent = 'Salvo no Firebase';
+        saveStatus.textContent = 'Salvo!';
         return docRef.id;
     } catch (error) {
-        console.error('Erro ao salvar no Firebase:', error);
-        saveStatus.textContent = 'Falha ao salvar no Firebase';
+        console.error('Erro ao salvar:', error);
+        saveStatus.textContent = 'Falha ao salvar';
         return null;
     }
 }
@@ -1819,7 +1819,7 @@ Cargo/Função: ${position}`;
         
         // Footer text
         setFontSize(8);
-        doc.text('Polícia Municipal de Aracaju - Formulário de Gestão de Operações - © 2026', 
+        doc.text('Polícia Municipal de Aracaju - Gestão de Operações - © 2026', 
                pageWidth / 2, pageHeight - 10, { align: 'center' });
     }
     
