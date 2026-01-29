@@ -114,6 +114,23 @@ let logsCache = [];
 let isLoadingLogs = false;
 let logsCurrentLimit = 100;
 
+const CLASSE_OPTIONS = [
+    'S INSP 2ª CL',
+    'S INSP 3ª CL',
+    'SUP',
+    'GUARDA AUXILIAR',
+    'GM'
+];
+
+function buildClasseOptions(selectedValue) {
+    const options = ['<option value="">Selecione</option>'];
+    CLASSE_OPTIONS.forEach(option => {
+        const isSelected = option === selectedValue ? ' selected' : '';
+        options.push(`<option value="${option}"${isSelected}>${option}</option>`);
+    });
+    return options.join('');
+}
+
 // Initialize with default rows
 document.addEventListener('DOMContentLoaded', () => {
     initFirebase();
@@ -778,11 +795,9 @@ async function saveEditedUserProfile() {
             nomeGuerra,
             matricula,
             tipo: tipoValue,
-            email: auth.currentUser.email || currentUserProfile?.email || null,
-            uid: auth.currentUser.uid,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
-        await getUsersCollection().doc(editingUserId).set(payload, { merge: true });
+        await getUsersCollection().doc(editingUserId).update(payload);
 
         if (auth?.currentUser?.uid === editingUserId) {
             currentUserProfile = {
@@ -1060,7 +1075,11 @@ function updateAgentsTable() {
     agentRows.forEach(row => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td><input type="text" class="agent-input" data-id="${row.id}" data-field="classe" value="${row.classe}" placeholder="Ex: SUPERVISOR"></td>
+            <td>
+                <select class="agent-input" data-id="${row.id}" data-field="classe">
+                    ${buildClasseOptions(row.classe)}
+                </select>
+            </td>
             <td><input type="text" class="agent-input" data-id="${row.id}" data-field="warName" value="${row.warName}" placeholder="Nome de guerra"></td>
             <td><button class="btn-small btn-danger remove-agent-row" data-id="${row.id}"><i class="fas fa-trash-alt"></i> Remover</button></td>
         `;
@@ -1068,7 +1087,7 @@ function updateAgentsTable() {
     });
     
     document.querySelectorAll('.agent-input').forEach(input => {
-        input.addEventListener('input', (e) => {
+        const handler = (e) => {
             const rowId = parseInt(e.target.getAttribute('data-id'));
             const field = e.target.getAttribute('data-field');
             const value = e.target.value;
@@ -1078,7 +1097,9 @@ function updateAgentsTable() {
                 agentRows[rowIndex][field] = value;
                 triggerSave();
             }
-        });
+        };
+        input.addEventListener('input', handler);
+        input.addEventListener('change', handler);
     });
     
     document.querySelectorAll('.remove-agent-row').forEach(button => {
@@ -1098,7 +1119,11 @@ function updateAgentsCards() {
         card.innerHTML = `
             <div class="card-row">
                 <span class="card-label">Classe:</span>
-                <span><input type="text" class="card-input" data-id="${row.id}" data-field="classe" value="${row.classe}" placeholder="Ex: SUPERVISOR"></span>
+                <span>
+                    <select class="card-input" data-id="${row.id}" data-field="classe">
+                        ${buildClasseOptions(row.classe)}
+                    </select>
+                </span>
             </div>
             <div class="card-row">
                 <span class="card-label">Nome de Guerra:</span>
@@ -1112,7 +1137,7 @@ function updateAgentsCards() {
     });
     
     document.querySelectorAll('#agentsCardsContainer .card-input').forEach(input => {
-        input.addEventListener('input', (e) => {
+        const handler = (e) => {
             const rowId = parseInt(e.target.getAttribute('data-id'));
             const field = e.target.getAttribute('data-field');
             const value = e.target.value;
@@ -1122,7 +1147,9 @@ function updateAgentsCards() {
                 agentRows[rowIndex][field] = value;
                 triggerSave();
             }
-        });
+        };
+        input.addEventListener('input', handler);
+        input.addEventListener('change', handler);
     });
     
     document.querySelectorAll('#agentsCardsContainer .remove-agent-row').forEach(button => {
