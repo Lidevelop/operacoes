@@ -38,9 +38,11 @@ const currentOperationBtn = document.getElementById('currentOperationBtn');
 const newOperationBtn = document.getElementById('newOperationBtn');
 const viewManagerBtn = document.getElementById('viewManagerBtn');
 const viewUsersBtn = document.getElementById('viewUsersBtn');
+const viewLogsBtn = document.getElementById('viewLogsBtn');
 const operationFormView = document.getElementById('operationFormView');
 const managerView = document.getElementById('managerView');
 const usersView = document.getElementById('usersView');
+const logsView = document.getElementById('logsView');
 const operationsList = document.getElementById('operationsList');
 const operationsPagination = document.getElementById('operationsPagination');
 const filterText = document.getElementById('filterText');
@@ -68,6 +70,11 @@ const confirmClear = document.getElementById('confirmClear');
 const cancelClear = document.getElementById('cancelClear');
 const editLockBanner = document.getElementById('editLockBanner');
 const usersTableBody = document.getElementById('usersTableBody');
+const logsTableBody = document.getElementById('logsTableBody');
+const logsDateFrom = document.getElementById('logsDateFrom');
+const logsDateTo = document.getElementById('logsDateTo');
+const logsLimit = document.getElementById('logsLimit');
+const logsClearBtn = document.getElementById('logsClearBtn');
 const profileSummaryClass = document.getElementById('profileSummaryClass');
 const profileSummaryWarName = document.getElementById('profileSummaryWarName');
 const profileSummaryRegistration = document.getElementById('profileSummaryRegistration');
@@ -103,6 +110,9 @@ let usersCache = [];
 let isLoadingUsers = false;
 let currentOperationMeta = null;
 let editingUserId = null;
+let logsCache = [];
+let isLoadingLogs = false;
+let logsCurrentLimit = 100;
 
 // Initialize with default rows
 document.addEventListener('DOMContentLoaded', () => {
@@ -256,6 +266,39 @@ function initializeEventListeners() {
             if (isAdmin) {
                 setActiveAppView('users');
             }
+        });
+    }
+    if (viewLogsBtn) {
+        viewLogsBtn.addEventListener('click', () => {
+            if (isAdmin) {
+                setActiveAppView('logs');
+                loadLogsList(true);
+            }
+        });
+    }
+
+    [logsDateFrom, logsDateTo].forEach(input => {
+        if (!input) return;
+        input.addEventListener('change', () => {
+            applyLogsFilter();
+        });
+    });
+
+    if (logsLimit) {
+        logsLimit.addEventListener('change', () => {
+            const value = parseInt(logsLimit.value, 10);
+            logsCurrentLimit = Number.isNaN(value) ? 100 : value;
+            loadLogsList(true);
+        });
+    }
+
+    if (logsClearBtn) {
+        logsClearBtn.addEventListener('click', () => {
+            if (logsDateFrom) logsDateFrom.value = '';
+            if (logsDateTo) logsDateTo.value = '';
+            if (logsLimit) logsLimit.value = '100';
+            logsCurrentLimit = 100;
+            loadLogsList(true);
         });
     }
 
@@ -446,14 +489,22 @@ function resetUserProfileState() {
     isAdmin = false;
     usersCache = [];
     editingUserId = null;
+    logsCache = [];
     closeProfileMenu();
     updateProfileSummary(null);
     if (viewUsersBtn) {
         viewUsersBtn.classList.add('hidden');
         viewUsersBtn.classList.remove('active');
     }
+    if (viewLogsBtn) {
+        viewLogsBtn.classList.add('hidden');
+        viewLogsBtn.classList.remove('active');
+    }
     if (usersView) {
         usersView.classList.add('hidden');
+    }
+    if (logsView) {
+        logsView.classList.add('hidden');
     }
     if (profileModal) {
         profileModal.style.display = 'none';
@@ -466,6 +517,7 @@ function resetUserProfileState() {
 async function initializeUserProfileFlow(user) {
     if (!db || !user) return;
     await ensureUserProfile(user);
+    await registerAccessLog(user);
     if (!currentUserProfile || !isProfileComplete(currentUserProfile)) {
         openProfileModal();
     }
@@ -473,6 +525,10 @@ async function initializeUserProfileFlow(user) {
 
 function getUsersCollection() {
     return db.collection('users');
+}
+
+function getAccessLogsCollection() {
+    return db.collection('accessLogs');
 }
 
 function isProfileComplete(profile) {
@@ -483,7 +539,13 @@ function updateAdminVisibility() {
     if (viewUsersBtn) {
         viewUsersBtn.classList.toggle('hidden', !isAdmin);
     }
+    if (viewLogsBtn) {
+        viewLogsBtn.classList.toggle('hidden', !isAdmin);
+    }
     if (!isAdmin && usersView && !usersView.classList.contains('hidden')) {
+        setActiveAppView('form');
+    }
+    if (!isAdmin && logsView && !logsView.classList.contains('hidden')) {
         setActiveAppView('form');
     }
 }
@@ -564,6 +626,11 @@ async function ensureUserProfile(user) {
         } else if (!profileData.tipo) {
             profileData.tipo = 'usuario';
             await docRef.set({ tipo: 'usuario', updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        }
+
+        const refreshedSnap = await docRef.get();
+        if (refreshedSnap.exists) {
+            profileData = refreshedSnap.data();
         }
 
         currentUserProfile = profileData;
@@ -738,17 +805,24 @@ function setActiveAppView(view) {
     const isForm = view === 'form';
     const isManager = view === 'manager';
     const isUsers = view === 'users';
+    const isLogs = view === 'logs';
 
     operationFormView.classList.toggle('hidden', !isForm);
     managerView.classList.toggle('hidden', !isManager);
     if (usersView) {
         usersView.classList.toggle('hidden', !isUsers);
     }
+    if (logsView) {
+        logsView.classList.toggle('hidden', !isLogs);
+    }
 
     currentOperationBtn.classList.toggle('active', isForm);
     viewManagerBtn.classList.toggle('active', isManager);
     if (viewUsersBtn) {
         viewUsersBtn.classList.toggle('active', isUsers);
+    }
+    if (viewLogsBtn) {
+        viewLogsBtn.classList.toggle('active', isLogs);
     }
 
     if (isForm) {
@@ -1535,7 +1609,7 @@ function renderOperationsList(operations) {
                 <div><strong>Registrado por:</strong> ${(operation.createdBy?.nomeGuerra || 'Não informado')}</div>
                 <div><strong>Criado em:</strong> ${formatDateTime(operation.createdAt)}</div>
                 ${showUpdateInfo ? `
-                <div><strong>Nome (atualização):</strong> ${(operation.updatedBy?.nomeGuerra || 'Não informado')}</div>
+                <div><strong>Editado por:</strong> ${(operation.updatedBy?.nomeGuerra || 'Não informado')}</div>
                 <div><strong>Atualizado em:</strong> ${formatDateTime(operation.updatedAt)}</div>
                 ` : ''}
             </div>
@@ -2315,4 +2389,95 @@ function normalizeTimestamp(value) {
     }
     if (value instanceof Date) return value;
     return null;
+}
+
+async function registerAccessLog(user) {
+    if (!db || !user) return;
+    try {
+        const payload = {
+            uid: user.uid,
+            email: user.email || null,
+            classe: currentUserProfile?.classe || null,
+            nomeGuerra: currentUserProfile?.nomeGuerra || user.displayName || null,
+            matricula: currentUserProfile?.matricula || null,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        await getAccessLogsCollection().add(payload);
+    } catch (error) {
+        console.error('Erro ao registrar acesso:', error);
+    }
+}
+
+async function loadLogsList(force = false) {
+    if (!db || !auth || !auth.currentUser || !isAdmin || isLoadingLogs) return;
+    if (logsCache.length > 0 && !force) {
+        applyLogsFilter();
+        return;
+    }
+
+    isLoadingLogs = true;
+    if (logsTableBody) {
+        logsTableBody.innerHTML = '<tr><td colspan="5">Carregando logs...</td></tr>';
+    }
+
+    try {
+        const snapshot = await getAccessLogsCollection()
+            .orderBy('createdAt', 'desc')
+            .limit(logsCurrentLimit || 100)
+            .get();
+        logsCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        applyLogsFilter();
+    } catch (error) {
+        console.error('Erro ao carregar logs:', error);
+        if (logsTableBody) {
+            logsTableBody.innerHTML = '<tr><td colspan="5">Falha ao carregar logs.</td></tr>';
+        }
+    } finally {
+        isLoadingLogs = false;
+    }
+}
+
+function renderLogsTable(logs) {
+    if (!logsTableBody) return;
+    if (!logs.length) {
+        logsTableBody.innerHTML = '<tr><td colspan="5">Nenhum log encontrado.</td></tr>';
+        return;
+    }
+
+    logsTableBody.innerHTML = '';
+    logs.forEach(log => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${formatDateTime(log.createdAt)}</td>
+            <td>${log.classe || '-'}</td>
+            <td>${log.nomeGuerra || '-'}</td>
+            <td>${log.matricula || '-'}</td>
+            <td>${log.email || '-'}</td>
+        `;
+        logsTableBody.appendChild(tr);
+    });
+}
+
+function applyLogsFilter() {
+    if (!logsCache.length) {
+        renderLogsTable([]);
+        return;
+    }
+
+    const fromValue = logsDateFrom?.value ? new Date(logsDateFrom.value) : null;
+    const toValue = logsDateTo?.value ? new Date(logsDateTo.value) : null;
+
+    const filtered = logsCache.filter(log => {
+        const createdAt = normalizeTimestamp(log.createdAt);
+        if (!createdAt) return false;
+        if (fromValue && createdAt < fromValue) return false;
+        if (toValue) {
+            const endOfDay = new Date(toValue);
+            endOfDay.setHours(23, 59, 59, 999);
+            if (createdAt > endOfDay) return false;
+        }
+        return true;
+    });
+
+    renderLogsTable(filtered);
 }

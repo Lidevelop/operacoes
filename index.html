@@ -115,6 +115,10 @@
                     <i class="fas fa-users"></i>
                     Usuários
                 </button>
+                <button class="app-nav-btn hidden" id="viewLogsBtn">
+                    <i class="fas fa-clipboard-list"></i>
+                    Log
+                </button>
             </div>
 
             <!-- Manager View -->
@@ -167,6 +171,53 @@
                             </tr>
                         </thead>
                         <tbody id="usersTableBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Logs View (Admin only) -->
+            <section class="form-section hidden" id="logsView">
+                <h2 class="section-title">
+                    <i class="fas fa-clipboard-list"></i>
+                    Log de Acessos
+                </h2>
+                <div class="manager-filters">
+                    <div class="form-group">
+                        <label for="logsDateFrom"><i class="fas fa-calendar-alt"></i> Data inicial</label>
+                        <input type="date" id="logsDateFrom">
+                    </div>
+                    <div class="form-group">
+                        <label for="logsDateTo"><i class="fas fa-calendar-alt"></i> Data final</label>
+                        <input type="date" id="logsDateTo">
+                    </div>
+                    <div class="form-group">
+                        <label for="logsLimit"><i class="fas fa-list"></i> Limite</label>
+                        <select id="logsLimit">
+                            <option value="50">50</option>
+                            <option value="100" selected>100</option>
+                            <option value="200">200</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="logsClearBtn"><i class="fas fa-rotate"></i> Limpar filtros</label>
+                        <button class="btn-action btn-export" id="logsClearBtn">
+                            <i class="fas fa-rotate"></i>
+                            Limpar
+                        </button>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table id="logsTable">
+                        <thead>
+                            <tr>
+                                <th>Data/Hora</th>
+                                <th>Classe</th>
+                                <th>Nome de Guerra</th>
+                                <th>Matrícula</th>
+                                <th>E-mail</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logsTableBody"></tbody>
                     </table>
                 </div>
             </section>
