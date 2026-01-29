@@ -954,6 +954,11 @@ footer p:first-child {
         display: none;
     }
 
+    #usersView .table-responsive table,
+    #logsView .table-responsive table {
+        display: table;
+    }
+
     .cards-container {
         display: flex;
     }
