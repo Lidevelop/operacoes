@@ -109,12 +109,61 @@ body {
     margin-left: auto;
 }
 
+.profile-menu {
+    position: relative;
+}
+
+.profile-menu #profileMenuBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.profile-menu-dropdown {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.5rem);
+    min-width: 180px;
+    background: var(--white);
+    border-radius: 10px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.15);
+    padding: 0.4rem;
+    display: flex;
+    flex-direction: column;
+    z-index: 150;
+}
+
+.profile-menu-item {
+    border: none;
+    background: transparent;
+    color: var(--primary-color);
+    text-align: left;
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    transition: var(--transition);
+}
+
+.profile-menu-item:hover {
+    background: var(--light-gray);
+}
+
+.profile-menu-danger {
+    color: var(--danger);
+}
+
 /* App navigation */
 .app-nav {
     display: flex;
     gap: 1rem;
     margin-bottom: 2rem;
     flex-wrap: wrap;
+    align-items: center;
 }
 
 .app-nav-btn {
@@ -139,6 +188,45 @@ body {
 
 .app-nav-btn:hover {
     transform: translateY(-2px);
+}
+
+.profile-summary-card {
+    background: var(--white);
+    border-radius: var(--border-radius);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: var(--box-shadow);
+    padding: 0.8rem 1rem;
+    min-width: 260px;
+    flex: 1 1 320px;
+}
+
+.profile-summary-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    margin-bottom: 0.6rem;
+}
+
+.profile-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.5rem 1rem;
+}
+
+.profile-summary-grid small {
+    display: block;
+    color: var(--dark-gray);
+    opacity: 0.75;
+    font-size: 0.75rem;
+}
+
+.profile-summary-grid strong {
+    font-weight: 700;
+    color: var(--primary-color);
+    font-size: 0.95rem;
+    word-break: break-word;
 }
 
 /* Manager */
@@ -938,6 +1026,29 @@ footer p:first-child {
     box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
     border: 2px solid var(--accent-color);
     animation: modalAppear 0.3s ease-out;
+}
+
+.modal-content.modal-form {
+    max-width: 700px;
+    text-align: left;
+}
+
+.modal-helper {
+    color: var(--dark-gray);
+    opacity: 0.85;
+    margin-bottom: 1.5rem;
+}
+
+.modal-content.modal-form .form-grid {
+    margin-top: 0;
+}
+
+.modal-content.modal-form .form-group {
+    margin-bottom: 1rem;
+}
+
+.modal-content.modal-form .modal-buttons {
+    justify-content: flex-end;
 }
 
 @keyframes modalAppear {

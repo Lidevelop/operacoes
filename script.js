@@ -31,11 +31,16 @@ const loginEmail = document.getElementById('loginEmail');
 const loginPassword = document.getElementById('loginPassword');
 const loginError = document.getElementById('loginError');
 const logoutBtn = document.getElementById('logoutBtn');
+const profileMenuBtn = document.getElementById('profileMenuBtn');
+const profileMenu = document.getElementById('profileMenu');
+const editProfileBtn = document.getElementById('editProfileBtn');
 const currentOperationBtn = document.getElementById('currentOperationBtn');
 const newOperationBtn = document.getElementById('newOperationBtn');
 const viewManagerBtn = document.getElementById('viewManagerBtn');
+const viewUsersBtn = document.getElementById('viewUsersBtn');
 const operationFormView = document.getElementById('operationFormView');
 const managerView = document.getElementById('managerView');
+const usersView = document.getElementById('usersView');
 const operationsList = document.getElementById('operationsList');
 const operationsPagination = document.getElementById('operationsPagination');
 const filterText = document.getElementById('filterText');
@@ -62,6 +67,28 @@ const confirmationModal = document.getElementById('confirmationModal');
 const confirmClear = document.getElementById('confirmClear');
 const cancelClear = document.getElementById('cancelClear');
 const editLockBanner = document.getElementById('editLockBanner');
+const usersTableBody = document.getElementById('usersTableBody');
+const profileSummaryClass = document.getElementById('profileSummaryClass');
+const profileSummaryWarName = document.getElementById('profileSummaryWarName');
+const profileSummaryRegistration = document.getElementById('profileSummaryRegistration');
+const profileSummaryType = document.getElementById('profileSummaryType');
+const profileModal = document.getElementById('profileModal');
+const profileForm = document.getElementById('profileForm');
+const profileClass = document.getElementById('profileClass');
+const profileWarName = document.getElementById('profileWarName');
+const profileRegistration = document.getElementById('profileRegistration');
+const profileType = document.getElementById('profileType');
+const saveProfileBtn = document.getElementById('saveProfileBtn');
+const profileError = document.getElementById('profileError');
+const userEditModal = document.getElementById('userEditModal');
+const userEditForm = document.getElementById('userEditForm');
+const userEditClass = document.getElementById('userEditClass');
+const userEditWarName = document.getElementById('userEditWarName');
+const userEditRegistration = document.getElementById('userEditRegistration');
+const userEditType = document.getElementById('userEditType');
+const saveUserEditBtn = document.getElementById('saveUserEditBtn');
+const cancelUserEditBtn = document.getElementById('cancelUserEditBtn');
+const userEditError = document.getElementById('userEditError');
 
 // State variables
 let saveTimeout = null;
@@ -70,6 +97,12 @@ let areaRows = [];
 let agentRows = [];
 let vehicleRows = [];
 let serviceChangeRows = [];
+let currentUserProfile = null;
+let isAdmin = false;
+let usersCache = [];
+let isLoadingUsers = false;
+let currentOperationMeta = null;
+let editingUserId = null;
 
 // Initialize with default rows
 document.addEventListener('DOMContentLoaded', () => {
@@ -124,8 +157,10 @@ function initFirebase() {
         if (user) {
             showAppView();
             loadOperationsList();
+            initializeUserProfileFlow(user);
         } else {
             showLoginView();
+            resetUserProfileState();
         }
     });
 }
@@ -216,6 +251,13 @@ function initializeEventListeners() {
         setActiveAppView('form');
     });
     viewManagerBtn.addEventListener('click', () => setActiveAppView('manager'));
+    if (viewUsersBtn) {
+        viewUsersBtn.addEventListener('click', () => {
+            if (isAdmin) {
+                setActiveAppView('users');
+            }
+        });
+    }
 
     // Manager filters
     [filterText, filterDateFrom, filterDateTo].forEach(input => {
@@ -238,6 +280,48 @@ function initializeEventListeners() {
         operationsCurrentPage = 1;
         loadOperationsList(true);
     });
+
+    if (profileMenuBtn && profileMenu) {
+        profileMenuBtn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            const isHidden = profileMenu.classList.contains('hidden');
+            profileMenu.classList.toggle('hidden', !isHidden);
+            profileMenuBtn.setAttribute('aria-expanded', String(isHidden));
+        });
+    }
+
+    if (editProfileBtn) {
+        editProfileBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            closeProfileMenu();
+            openProfileModal();
+        });
+    }
+
+    document.addEventListener('click', () => {
+        closeProfileMenu();
+    });
+
+    if (saveProfileBtn) {
+        saveProfileBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            saveCurrentUserProfile();
+        });
+    }
+
+    if (saveUserEditBtn) {
+        saveUserEditBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            saveEditedUserProfile();
+        });
+    }
+
+    if (cancelUserEditBtn) {
+        cancelUserEditBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            closeUserEditModal();
+        });
+    }
 }
 
 function validateRequiredFields() {
@@ -299,6 +383,7 @@ function initializeAuthListeners() {
         await auth.signOut();
         currentOperationId = null;
         operationsCache = [];
+        resetUserProfileState();
     });
 }
 
@@ -350,23 +435,336 @@ function resetIdleTimer() {
     }, IDLE_LIMIT_MS);
 }
 
+function closeProfileMenu() {
+    if (!profileMenu || !profileMenuBtn) return;
+    profileMenu.classList.add('hidden');
+    profileMenuBtn.setAttribute('aria-expanded', 'false');
+}
+
+function resetUserProfileState() {
+    currentUserProfile = null;
+    isAdmin = false;
+    usersCache = [];
+    editingUserId = null;
+    closeProfileMenu();
+    updateProfileSummary(null);
+    if (viewUsersBtn) {
+        viewUsersBtn.classList.add('hidden');
+        viewUsersBtn.classList.remove('active');
+    }
+    if (usersView) {
+        usersView.classList.add('hidden');
+    }
+    if (profileModal) {
+        profileModal.style.display = 'none';
+    }
+    if (userEditModal) {
+        userEditModal.style.display = 'none';
+    }
+}
+
+async function initializeUserProfileFlow(user) {
+    if (!db || !user) return;
+    await ensureUserProfile(user);
+    if (!currentUserProfile || !isProfileComplete(currentUserProfile)) {
+        openProfileModal();
+    }
+}
+
+function getUsersCollection() {
+    return db.collection('users');
+}
+
+function isProfileComplete(profile) {
+    return Boolean(profile && profile.classe && profile.nomeGuerra && profile.matricula);
+}
+
+function updateAdminVisibility() {
+    if (viewUsersBtn) {
+        viewUsersBtn.classList.toggle('hidden', !isAdmin);
+    }
+    if (!isAdmin && usersView && !usersView.classList.contains('hidden')) {
+        setActiveAppView('form');
+    }
+}
+
+function updateProfileSummary(profile) {
+    if (!profileSummaryClass) return;
+    const data = profile || {};
+    profileSummaryClass.textContent = data.classe || '-';
+    profileSummaryWarName.textContent = data.nomeGuerra || '-';
+    profileSummaryRegistration.textContent = data.matricula || '-';
+    profileSummaryType.textContent = data.tipo || 'usuario';
+}
+
+function openProfileModal() {
+    if (!profileModal) return;
+    profileError.textContent = '';
+    profileClass.value = currentUserProfile?.classe || '';
+    profileWarName.value = currentUserProfile?.nomeGuerra || '';
+    profileRegistration.value = currentUserProfile?.matricula || '';
+    profileType.value = currentUserProfile?.tipo || 'usuario';
+    profileType.disabled = true;
+    profileModal.style.display = 'flex';
+}
+
+function closeProfileModal() {
+    if (!profileModal) return;
+    profileModal.style.display = 'none';
+}
+
+function openUserEditModal(user) {
+    if (!userEditModal || !user) return;
+    editingUserId = user.id;
+    userEditError.textContent = '';
+    userEditClass.value = user.classe || '';
+    userEditWarName.value = user.nomeGuerra || '';
+    userEditRegistration.value = user.matricula || '';
+    userEditType.value = user.tipo || 'usuario';
+    userEditModal.style.display = 'flex';
+}
+
+function closeUserEditModal() {
+    if (!userEditModal) return;
+    editingUserId = null;
+    userEditModal.style.display = 'none';
+}
+
+function validateProfileFields({ classe, nomeGuerra, matricula }) {
+    return Boolean(classe && nomeGuerra && matricula);
+}
+
+async function ensureUserProfile(user) {
+    try {
+        const docRef = getUsersCollection().doc(user.uid);
+        const docSnap = await docRef.get();
+        let profileData = docSnap.exists ? docSnap.data() : null;
+
+        await docRef.set(
+            {
+                uid: user.uid,
+                email: user.email || null,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            },
+            { merge: true }
+        );
+
+        if (!profileData) {
+            profileData = {
+                uid: user.uid,
+                email: user.email || null,
+                classe: '',
+                nomeGuerra: '',
+                matricula: '',
+                tipo: 'usuario',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            await docRef.set(profileData, { merge: true });
+        } else if (!profileData.tipo) {
+            profileData.tipo = 'usuario';
+            await docRef.set({ tipo: 'usuario', updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        }
+
+        currentUserProfile = profileData;
+        isAdmin = currentUserProfile.tipo === 'administrador';
+        updateAdminVisibility();
+        updateProfileSummary(currentUserProfile);
+
+        if (!isProfileComplete(currentUserProfile)) {
+            openProfileModal();
+        }
+    } catch (error) {
+        console.error('Erro ao carregar perfil do usuário:', error);
+        if (!currentUserProfile) {
+            currentUserProfile = {
+                uid: user.uid,
+                email: user.email || null,
+                classe: '',
+                nomeGuerra: '',
+                matricula: '',
+                tipo: 'usuario'
+            };
+        }
+        openProfileModal();
+    }
+}
+
+async function saveCurrentUserProfile() {
+    if (!auth || !auth.currentUser || !db) return;
+
+    const classe = profileClass.value.trim();
+    const nomeGuerra = profileWarName.value.trim();
+    const matricula = profileRegistration.value.trim();
+    const tipoValue = currentUserProfile?.tipo || 'usuario';
+
+    if (!validateProfileFields({ classe, nomeGuerra, matricula })) {
+        profileError.textContent = 'Preencha todos os campos obrigatórios.';
+        return;
+    }
+
+    try {
+        const payload = {
+            classe,
+            nomeGuerra,
+            matricula,
+            tipo: tipoValue,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        await getUsersCollection().doc(auth.currentUser.uid).set(payload, { merge: true });
+
+        currentUserProfile = {
+            ...(currentUserProfile || {}),
+            ...payload,
+            uid: auth.currentUser.uid,
+            email: auth.currentUser.email || currentUserProfile?.email || null
+        };
+        isAdmin = currentUserProfile.tipo === 'administrador';
+        updateAdminVisibility();
+        updateProfileSummary(currentUserProfile);
+        closeProfileModal();
+    } catch (error) {
+        console.error('Erro ao salvar perfil do usuário:', error);
+        profileError.textContent = 'Falha ao salvar o perfil. Tente novamente.';
+    }
+}
+
+async function loadUsersList(force = false) {
+    if (!db || !auth || !auth.currentUser || !isAdmin || isLoadingUsers) return;
+    if (usersCache.length > 0 && !force) {
+        renderUsersTable(usersCache);
+        return;
+    }
+
+    isLoadingUsers = true;
+    if (usersTableBody) {
+        usersTableBody.innerHTML = '<tr><td colspan="6">Carregando usuários...</td></tr>';
+    }
+
+    try {
+        const snapshot = await getUsersCollection().orderBy('nomeGuerra').get();
+        usersCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        renderUsersTable(usersCache);
+    } catch (error) {
+        console.error('Erro ao carregar usuários:', error);
+        if (usersTableBody) {
+            usersTableBody.innerHTML = '<tr><td colspan="6">Falha ao carregar usuários.</td></tr>';
+        }
+    } finally {
+        isLoadingUsers = false;
+    }
+}
+
+function renderUsersTable(users) {
+    if (!usersTableBody) return;
+    if (!users.length) {
+        usersTableBody.innerHTML = '<tr><td colspan="6">Nenhum usuário encontrado.</td></tr>';
+        return;
+    }
+
+    usersTableBody.innerHTML = '';
+    users.forEach(user => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${user.classe || '-'}</td>
+            <td>${user.nomeGuerra || '-'}</td>
+            <td>${user.email || '-'}</td>
+            <td>${user.matricula || '-'}</td>
+            <td>${user.tipo || 'usuario'}</td>
+            <td>
+                <button class="btn-small" data-user-id="${user.id}">
+                    <i class="fas fa-pen"></i> Editar
+                </button>
+            </td>
+        `;
+        usersTableBody.appendChild(tr);
+    });
+
+    usersTableBody.querySelectorAll('button[data-user-id]').forEach(button => {
+        button.addEventListener('click', () => {
+            if (!isAdmin) return;
+            const userId = button.getAttribute('data-user-id');
+            const user = usersCache.find(item => item.id === userId);
+            if (user) {
+                openUserEditModal(user);
+            }
+        });
+    });
+}
+
+async function saveEditedUserProfile() {
+    if (!isAdmin || !editingUserId) return;
+
+    const classe = userEditClass.value.trim();
+    const nomeGuerra = userEditWarName.value.trim();
+    const matricula = userEditRegistration.value.trim();
+    const tipoValue = userEditType.value;
+
+    if (!validateProfileFields({ classe, nomeGuerra, matricula })) {
+        userEditError.textContent = 'Preencha todos os campos obrigatórios.';
+        return;
+    }
+
+    try {
+        const payload = {
+            classe,
+            nomeGuerra,
+            matricula,
+            tipo: tipoValue,
+            email: auth.currentUser.email || currentUserProfile?.email || null,
+            uid: auth.currentUser.uid,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        await getUsersCollection().doc(editingUserId).set(payload, { merge: true });
+
+        if (auth?.currentUser?.uid === editingUserId) {
+            currentUserProfile = {
+                ...(currentUserProfile || {}),
+                ...payload
+            };
+            isAdmin = currentUserProfile.tipo === 'administrador';
+            updateAdminVisibility();
+        }
+
+        closeUserEditModal();
+        loadUsersList(true);
+    } catch (error) {
+        console.error('Erro ao atualizar usuário:', error);
+        userEditError.textContent = 'Falha ao salvar. Tente novamente.';
+    }
+}
+
 function setActiveAppView(view) {
     const isForm = view === 'form';
+    const isManager = view === 'manager';
+    const isUsers = view === 'users';
+
     operationFormView.classList.toggle('hidden', !isForm);
-    managerView.classList.toggle('hidden', isForm);
+    managerView.classList.toggle('hidden', !isManager);
+    if (usersView) {
+        usersView.classList.toggle('hidden', !isUsers);
+    }
+
     currentOperationBtn.classList.toggle('active', isForm);
+    viewManagerBtn.classList.toggle('active', isManager);
+    if (viewUsersBtn) {
+        viewUsersBtn.classList.toggle('active', isUsers);
+    }
+
     if (isForm) {
         newOperationBtn.classList.remove('active');
-    }
-    viewManagerBtn.classList.toggle('active', !isForm);
-
-    if (!isForm) {
-        loadOperationsList();
-    } else {
         requestAnimationFrame(() => {
             requestAnimationFrame(expandAllTextareas);
         });
         enforceEditWindow();
+    }
+
+    if (isManager) {
+        loadOperationsList();
+    }
+
+    if (isUsers && isAdmin) {
+        loadUsersList(true);
     }
 }
 
@@ -941,6 +1339,12 @@ function applyFormData(formData) {
     document.getElementById('totalAgents').textContent = formData.totalAgents || '0';
     document.getElementById('incidents').value = formData.incidents || '';
     document.getElementById('summary').value = formData.summary || '';
+    currentOperationMeta = {
+        createdBy: formData.createdBy || null,
+        updatedBy: formData.updatedBy || null,
+        createdAt: formData.createdAt || null,
+        updatedAt: formData.updatedAt || null
+    };
 
     if (formData.areaRows && formData.areaRows.length > 0) {
         areaRows = formData.areaRows;
@@ -1021,8 +1425,9 @@ async function saveOperationToFirebase(formData) {
         const user = auth.currentUser;
         const userInfo = {
             uid: user.uid,
-            email: user.email || null,
-            displayName: user.displayName || null
+            nomeGuerra: currentUserProfile?.nomeGuerra || user.displayName || null,
+            classe: currentUserProfile?.classe || null,
+            matricula: currentUserProfile?.matricula || null
         };
         const payload = {
             ...formData,
@@ -1117,6 +1522,7 @@ function renderOperationsList(operations) {
 
     operationsList.innerHTML = '';
     pageItems.forEach(operation => {
+        const showUpdateInfo = shouldShowUpdateInfo(operation);
         const card = document.createElement('div');
         card.className = 'operation-card';
         card.innerHTML = `
@@ -1126,6 +1532,12 @@ function renderOperationsList(operations) {
                 <div><strong>Local:</strong> ${operation.location || 'Não informado'}</div>
                 <div><strong>Coordenador:</strong> ${operation.coordinatorName || 'Não informado'}</div>
                 <div><strong>Matrícula:</strong> ${operation.registration || 'Não informado'}</div>
+                <div><strong>Registrado por:</strong> ${(operation.createdBy?.nomeGuerra || 'Não informado')}</div>
+                <div><strong>Criado em:</strong> ${formatDateTime(operation.createdAt)}</div>
+                ${showUpdateInfo ? `
+                <div><strong>Nome (atualização):</strong> ${(operation.updatedBy?.nomeGuerra || 'Não informado')}</div>
+                <div><strong>Atualizado em:</strong> ${formatDateTime(operation.updatedAt)}</div>
+                ` : ''}
             </div>
             <div class="operation-actions">
                 <button class="btn-small" data-action="edit" data-id="${operation.id}">
@@ -1206,6 +1618,11 @@ async function loadOperationById(id) {
         const docSnap = await docRef.get();
         if (docSnap.exists) {
             const data = docSnap.data();
+            if (data.ownerId && auth.currentUser && data.ownerId !== auth.currentUser.uid && !isAdmin) {
+                saveStatus.textContent = 'Você não tem permissão para editar esta operação.';
+                alert('Você não tem permissão para editar esta operação.');
+                return;
+            }
             currentOperationId = docSnap.id;
             applyFormData(data);
             setActiveAppView('form');
@@ -1232,6 +1649,7 @@ function formatTime(date) {
 
 // Clear form data
 function clearForm() {
+        currentOperationMeta = null;
     // Clear all form inputs
     formInputs.forEach(input => {
         if (input.type === 'number') {
@@ -1771,36 +2189,64 @@ Cargo/Função: ${position}`;
      // Adicione espaço extra aqui:
     yPos += 2;
     
-    // Add signature area com menos espaçamento
-    checkPageBreak(35);
+    // User info area (registrador + emissão)
+    checkPageBreak(60);
     yPos += 6;
-    
+
     doc.setDrawColor(150, 150, 150);
     doc.line(margin, yPos, pageWidth - margin, yPos);
-    yPos += 15;
-    
+    yPos += 12;
+
     setTextColor(30, 58, 95);
     setFontSize(12);
     setFontStyle('bold');
-    doc.text('RESPONSÁVEL PELA OPERAÇÃO', pageWidth / 2, yPos, { align: 'center' });
-    
-    yPos += 12;
-    
-    // Signature lines
-    const lineLength = 80;
-    const leftLineX = pageWidth / 2 - lineLength - 10;
-    const rightLineX = pageWidth / 2 + 10;
-    
-    doc.setDrawColor(200, 200, 200);
-    doc.line(leftLineX, yPos, leftLineX + lineLength, yPos);
-    doc.line(rightLineX, yPos, rightLineX + lineLength, yPos);
-    
-    yPos += 8;
-    setTextColor(100, 100, 100);
-    setFontSize(9);
+    doc.text('USUÁRIO REGISTRADOR', pageWidth / 2, yPos, { align: 'center' });
+
+    yPos += 10;
+
+    const registradorProfile = currentOperationMeta?.createdBy || {};
+    const createdAtText = formatDateTime(currentOperationMeta?.createdAt);
+    const updatedAtText = formatDateTime(currentOperationMeta?.updatedAt);
+
+    setTextColor(0, 0, 0);
+    setFontSize(11);
     setFontStyle('normal');
-    doc.text('Assinatura', leftLineX + (lineLength / 2), yPos, { align: 'center' });
-    doc.text('Carimbo/Matrícula', rightLineX + (lineLength / 2), yPos, { align: 'center' });
+
+    const infoLeftX = margin + 5;
+    const infoRightX = pageWidth / 2 + 5;
+
+    doc.text(`Classe: ${registradorProfile.classe || 'Não informado'}`, infoLeftX, yPos);
+    doc.text(`Nome: ${registradorProfile.nomeGuerra || 'Não informado'}`, infoRightX, yPos);
+    yPos += 7;
+    doc.text(`Matrícula: ${registradorProfile.matricula || 'Não informado'}`, infoLeftX, yPos);
+    doc.text(`Criado em: ${createdAtText}`, infoRightX, yPos);
+    yPos += 7;
+    doc.text(`Atualizado em: ${updatedAtText}`, infoLeftX, yPos);
+
+    yPos += 10;
+    doc.setDrawColor(150, 150, 150);
+    doc.line(margin, yPos, pageWidth - margin, yPos);
+    yPos += 12;
+
+    setTextColor(30, 58, 95);
+    setFontSize(12);
+    setFontStyle('bold');
+    doc.text('RESPONSÁVEL PELA EMISSÃO', pageWidth / 2, yPos, { align: 'center' });
+
+    yPos += 10;
+
+    const emissionProfile = currentUserProfile || {};
+    const emissionDateTime = new Date();
+
+    setTextColor(0, 0, 0);
+    setFontSize(11);
+    setFontStyle('normal');
+
+    doc.text(`Classe: ${emissionProfile.classe || 'Não informado'}`, infoLeftX, yPos);
+    doc.text(`Nome: ${emissionProfile.nomeGuerra || 'Não informado'}`, infoRightX, yPos);
+    yPos += 7;
+    doc.text(`Matrícula: ${emissionProfile.matricula || 'Não informado'}`, infoLeftX, yPos);
+    doc.text(`Emissão: ${emissionDateTime.toLocaleString('pt-BR')}`, infoRightX, yPos);
     
     // Add footer on all pages
     const totalPages = doc.getNumberOfPages();
@@ -1834,4 +2280,39 @@ function formatDate(dateString) {
     if (!dateString) return 'Não informado';
     const date = new Date(dateString);
     return date.toLocaleDateString('pt-BR');
+}
+
+function formatDateTime(value) {
+    if (!value) return 'Não informado';
+    let date = value;
+    if (typeof value?.toDate === 'function') {
+        date = value.toDate();
+    } else if (typeof value === 'string' || typeof value === 'number') {
+        date = new Date(value);
+    }
+    if (date instanceof Date && !Number.isNaN(date.getTime())) {
+        return date.toLocaleString('pt-BR');
+    }
+    return 'Não informado';
+}
+
+function shouldShowUpdateInfo(operation) {
+    if (!operation || !operation.updatedAt || !operation.createdAt) return false;
+    const createdAt = normalizeTimestamp(operation.createdAt);
+    const updatedAt = normalizeTimestamp(operation.updatedAt);
+    if (!createdAt || !updatedAt) return false;
+    return updatedAt.getTime() > createdAt.getTime();
+}
+
+function normalizeTimestamp(value) {
+    if (!value) return null;
+    if (typeof value?.toDate === 'function') {
+        return value.toDate();
+    }
+    if (typeof value === 'string' || typeof value === 'number') {
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? null : date;
+    }
+    if (value instanceof Date) return value;
+    return null;
 }

@@ -52,10 +52,23 @@
                     <span id="saveStatus">Salvo automaticamente</span>
                     <span id="lastSaved">Último salvamento: --:--:--</span>
                 </div>
-                <button class="btn-small btn-danger" id="logoutBtn">
-                    <i class="fas fa-sign-out-alt"></i>
-                    Sair
-                </button>
+                <div class="profile-menu" id="profileMenuContainer">
+                    <button class="btn-small" id="profileMenuBtn" aria-haspopup="true" aria-expanded="false">
+                        <i class="fas fa-user-circle"></i>
+                        Minha conta
+                        <i class="fas fa-chevron-down"></i>
+                    </button>
+                    <div class="profile-menu-dropdown hidden" id="profileMenu" role="menu">
+                        <button class="profile-menu-item" id="editProfileBtn" role="menuitem">
+                            <i class="fas fa-id-card"></i>
+                            Editar perfil
+                        </button>
+                        <button class="profile-menu-item profile-menu-danger" id="logoutBtn" role="menuitem">
+                            <i class="fas fa-sign-out-alt"></i>
+                            Sair
+                        </button>
+                    </div>
+                </div>
             </div>
         </header>
 
@@ -73,6 +86,34 @@
                 <button class="app-nav-btn" id="viewManagerBtn">
                     <i class="fas fa-list"></i>
                     Operações Registradas
+                </button>
+                <div class="profile-summary-card" id="profileSummaryCard">
+                    <div class="profile-summary-header">
+                        <i class="fas fa-id-card"></i>
+                        <span>Perfil do usuário</span>
+                    </div>
+                    <div class="profile-summary-grid">
+                        <div>
+                            <small>Classe</small>
+                            <strong id="profileSummaryClass">-</strong>
+                        </div>
+                        <div>
+                            <small>Nome de Guerra</small>
+                            <strong id="profileSummaryWarName">-</strong>
+                        </div>
+                        <div>
+                            <small>Matrícula</small>
+                            <strong id="profileSummaryRegistration">-</strong>
+                        </div>
+                        <div>
+                            <small>Tipo</small>
+                            <strong id="profileSummaryType">-</strong>
+                        </div>
+                    </div>
+                </div>
+                <button class="app-nav-btn hidden" id="viewUsersBtn">
+                    <i class="fas fa-users"></i>
+                    Usuários
                 </button>
             </div>
 
@@ -105,6 +146,29 @@
                 </div>
                 <div id="operationsList" class="operations-list"></div>
                 <div class="pagination" id="operationsPagination"></div>
+            </section>
+
+            <!-- Users View (Admin only) -->
+            <section class="form-section hidden" id="usersView">
+                <h2 class="section-title">
+                    <i class="fas fa-users"></i>
+                    Usuários
+                </h2>
+                <div class="table-responsive">
+                    <table id="usersTable">
+                        <thead>
+                            <tr>
+                                <th>Classe</th>
+                                <th>Nome de Guerra</th>
+                                <th>E-mail</th>
+                                <th>Matrícula</th>
+                                <th>Tipo</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody"></tbody>
+                    </table>
+                </div>
             </section>
 
             <!-- Operation Form View -->
@@ -342,6 +406,72 @@
             <div class="modal-buttons">
                 <button class="btn-small" id="confirmClear">Sim, Limpar Tudo</button>
                 <button class="btn-small btn-danger" id="cancelClear">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Profile Modal (required on login) -->
+    <div class="modal" id="profileModal">
+        <div class="modal-content modal-form">
+            <h3>Complete seu cadastro</h3>
+            <p class="modal-helper">Preencha os dados para continuar usando o sistema.</p>
+            <form id="profileForm" class="form-grid">
+                <div class="form-group">
+                    <label for="profileClass" class="required-label"><i class="fas fa-layer-group"></i> Classe</label>
+                    <input type="text" id="profileClass" class="required" placeholder="Ex: SUPERVISOR">
+                </div>
+                <div class="form-group">
+                    <label for="profileWarName" class="required-label"><i class="fas fa-user"></i> Nome de Guerra</label>
+                    <input type="text" id="profileWarName" class="required" placeholder="Nome de guerra">
+                </div>
+                <div class="form-group">
+                    <label for="profileRegistration" class="required-label"><i class="fas fa-id-badge"></i> Matrícula</label>
+                    <input type="text" id="profileRegistration" class="required" placeholder="Matrícula">
+                </div>
+                <div class="form-group hidden">
+                    <label for="profileType" class="required-label"><i class="fas fa-user-shield"></i> Tipo</label>
+                    <select id="profileType" class="required">
+                        <option value="usuario">Usuário</option>
+                        <option value="administrador">Administrador</option>
+                    </select>
+                </div>
+            </form>
+            <p class="login-error" id="profileError" aria-live="polite"></p>
+            <div class="modal-buttons">
+                <button class="btn-small" id="saveProfileBtn">Salvar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Edit User Modal -->
+    <div class="modal" id="userEditModal">
+        <div class="modal-content modal-form">
+            <h3>Editar usuário</h3>
+            <form id="userEditForm" class="form-grid">
+                <div class="form-group">
+                    <label for="userEditClass" class="required-label"><i class="fas fa-layer-group"></i> Classe</label>
+                    <input type="text" id="userEditClass" class="required" placeholder="Ex: PM3">
+                </div>
+                <div class="form-group">
+                    <label for="userEditWarName" class="required-label"><i class="fas fa-user"></i> Nome de Guerra</label>
+                    <input type="text" id="userEditWarName" class="required" placeholder="Nome de guerra">
+                </div>
+                <div class="form-group">
+                    <label for="userEditRegistration" class="required-label"><i class="fas fa-id-badge"></i> Matrícula</label>
+                    <input type="text" id="userEditRegistration" class="required" placeholder="Matrícula">
+                </div>
+                <div class="form-group">
+                    <label for="userEditType" class="required-label"><i class="fas fa-user-shield"></i> Tipo</label>
+                    <select id="userEditType" class="required">
+                        <option value="usuario">Usuário</option>
+                        <option value="administrador">Administrador</option>
+                    </select>
+                </div>
+            </form>
+            <p class="login-error" id="userEditError" aria-live="polite"></p>
+            <div class="modal-buttons">
+                <button class="btn-small" id="saveUserEditBtn">Salvar</button>
+                <button class="btn-small btn-danger" id="cancelUserEditBtn">Cancelar</button>
             </div>
         </div>
     </div>
