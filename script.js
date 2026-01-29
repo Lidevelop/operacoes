@@ -132,31 +132,31 @@ function buildClasseOptions(selectedValue) {
 }
 
 // Initialize with default rows
-document.addEventListener('DOMContentLoaded', () => {
+function bootApp() {
     initFirebase();
 
     // Set today's date as default
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('operationDate').value = today;
-    
+
     // Set current time as default for start time
     const now = new Date();
     const hours = now.getHours().toString().padStart(2, '0');
     const minutes = now.getMinutes().toString().padStart(2, '0');
     document.getElementById('startTime').value = `${hours}:${minutes}`;
-    
+
     // Load saved data
     loadFormData();
-    
+
     // Add initial rows if none loaded
     if (areaRows.length === 0) addAreaRow();
     if (agentRows.length === 0) addAgentRow();
     if (vehicleRows.length === 0) addVehicleRow();
     if (serviceChangeRows.length === 0) addServiceChangeRow();
-    
+
     // Update time display
     updateLastSavedTime();
-    
+
     // Initialize event listeners
     initializeEventListeners();
     initializeAuthListeners();
@@ -166,7 +166,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Start idle watcher
     initializeIdleWatcher();
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootApp);
+} else {
+    bootApp();
+}
 
 function initFirebase() {
     if (!window.firebase) {

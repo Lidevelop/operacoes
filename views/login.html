@@ -1,0 +1,26 @@
+<!-- Login View -->
+<div class="login-view" id="loginView">
+    <div class="login-card">
+        <div class="login-header">
+            <img src="logo.jpg" alt="Logo Polícia Municipal de Aracaju" class="login-logo">
+            <h1>Polícia Municipal de Aracaju</h1>
+            <p>Sistema de Gestão de Operações</p>
+        </div>
+        <form id="loginForm" class="login-form">
+            <div class="form-group">
+                <label for="loginEmail"><i class="fas fa-envelope"></i> E-mail</label>
+                <input type="email" id="loginEmail" placeholder="seu@email.com" required>
+            </div>
+            <div class="form-group">
+                <label for="loginPassword"><i class="fas fa-lock"></i> Senha</label>
+                <input type="password" id="loginPassword" placeholder="Sua senha" required>
+            </div>
+            <p class="login-error" id="loginError" aria-live="polite"></p>
+            <button type="submit" class="btn-action btn-export login-btn">
+                <i class="fas fa-sign-in-alt"></i>
+                Entrar
+            </button>
+            <p class="login-helper">Caso tenha esquecido sua senha, entre em contato com o administrador.</p>
+        </form>
+    </div>
+</div>
