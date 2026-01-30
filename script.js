@@ -22,6 +22,8 @@ let idleTimeoutId = null;
 const IDLE_LIMIT_MS = 30 * 60 * 1000;
 const OPERATIONS_PAGE_SIZE = 5;
 let operationsCurrentPage = 1;
+const USERS_PAGE_SIZE = 8;
+let usersCurrentPage = 1;
 
 // DOM Elements
 const loginView = document.getElementById('loginView');
@@ -67,8 +69,19 @@ const clearBtn = document.getElementById('clearBtn');
 const confirmationModal = document.getElementById('confirmationModal');
 const confirmClear = document.getElementById('confirmClear');
 const cancelClear = document.getElementById('cancelClear');
+const resetPasswordModal = document.getElementById('resetPasswordModal');
+const resetPasswordMessage = document.getElementById('resetPasswordMessage');
+const resetPasswordError = document.getElementById('resetPasswordError');
+const confirmResetPassword = document.getElementById('confirmResetPassword');
+const cancelResetPassword = document.getElementById('cancelResetPassword');
 const editLockBanner = document.getElementById('editLockBanner');
 const usersTableBody = document.getElementById('usersTableBody');
+const usersSearchInput = document.getElementById('usersSearchInput');
+const usersPagination = document.getElementById('usersPagination');
+const summaryField = document.getElementById('summary');
+const insertSummaryTemplateBtn = document.getElementById('insertSummaryTemplateBtn');
+const summaryTemplateWarning = document.getElementById('summaryTemplateWarning');
+const summaryTemplateInfo = document.getElementById('summaryTemplateInfo');
 const logsTableBody = document.getElementById('logsTableBody');
 const logsDateFrom = document.getElementById('logsDateFrom');
 const logsDateTo = document.getElementById('logsDateTo');
@@ -76,6 +89,7 @@ const logsLimit = document.getElementById('logsLimit');
 const logsClearBtn = document.getElementById('logsClearBtn');
 const logsFilterAll = document.getElementById('logsFilterAll');
 const logsFilterAccess = document.getElementById('logsFilterAccess');
+const logsFilterReport = document.getElementById('logsFilterReport');
 const logsFilterUpdate = document.getElementById('logsFilterUpdate');
 const logsFilterDelete = document.getElementById('logsFilterDelete');
 const openUserCreateBtn = document.getElementById('openUserCreateBtn');
@@ -111,6 +125,30 @@ const userCreateType = document.getElementById('userCreateType');
 const saveUserCreateBtn = document.getElementById('saveUserCreateBtn');
 const cancelUserCreateBtn = document.getElementById('cancelUserCreateBtn');
 const userCreateError = document.getElementById('userCreateError');
+const changePasswordBtn = document.getElementById('changePasswordBtn');
+const changePasswordModal = document.getElementById('changePasswordModal');
+const changePasswordForm = document.getElementById('changePasswordForm');
+const currentPassword = document.getElementById('currentPassword');
+const newPassword = document.getElementById('newPassword');
+const confirmPassword = document.getElementById('confirmPassword');
+const savePasswordBtn = document.getElementById('savePasswordBtn');
+const cancelPasswordBtn = document.getElementById('cancelPasswordBtn');
+const changePasswordError = document.getElementById('changePasswordError');
+const eventTypeSelect = document.getElementById('eventType');
+const addEventTypeBtn = document.getElementById('addEventTypeBtn');
+const operationNumberInput = document.getElementById('operationNumber');
+const eventTypeModal = document.getElementById('eventTypeModal');
+const eventTypeList = document.getElementById('eventTypeList');
+const eventTypeInput = document.getElementById('eventTypeInput');
+const eventTypeAddConfirm = document.getElementById('eventTypeAddConfirm');
+const closeEventTypeModal = document.getElementById('closeEventTypeModal');
+const eventTypeModalError = document.getElementById('eventTypeModalError');
+const incidentsNoChange = document.getElementById('incidentsNoChange');
+const serviceChangesNoChange = document.getElementById('serviceChangesNoChange');
+const incidentsNoChangeRow = document.getElementById('incidentsNoChangeRow');
+const serviceChangesNoChangeRow = document.getElementById('serviceChangesNoChangeRow');
+const incidentsContainer = document.getElementById('incidentsContainer');
+const addIncidentBtn = document.getElementById('addIncidentBtn');
 
 // State variables
 let saveTimeout = null;
@@ -118,16 +156,20 @@ let isSaving = false;
 let areaRows = [];
 let vehicleRows = [];
 let serviceChangeRows = [];
+let incidentsRows = [];
 let currentUserProfile = null;
 let isAdmin = false;
+let isRestricted = false;
 let usersCache = [];
 let isLoadingUsers = false;
+let resetPasswordTarget = null;
 let currentOperationMeta = null;
 let editingUserId = null;
 let logsCache = [];
 let isLoadingLogs = false;
 let logsCurrentLimit = 100;
 let logsActionFilter = 'all';
+let eventTypesCache = [];
 
 const CLASSE_OPTIONS = [
     'S INSP 2ª CL',
@@ -136,6 +178,14 @@ const CLASSE_OPTIONS = [
     'GUARDA AUXILIAR',
     'GM'
 ];
+
+const EVENT_TYPES_COLLECTION = 'settings';
+const EVENT_TYPES_DOC_ID = 'eventTypes';
+const SUMMARY_TEMPLATE_TEXT = `Durante o período programado, as equipes da Polícia Municipal estiveram presentes no local designado, realizando patrulhamento preventivo e acompanhamento das atividades relacionadas ao evento/operação. As ações foram executadas conforme o planejamento estabelecido, com foco na preservação da ordem pública, na segurança dos participantes e na proteção do patrimônio.
+
+Foram realizadas rondas periódicas, orientações ao público quando necessário e monitoramento contínuo das áreas relatadas. Não houve intercorrências relevantes. As ocorrências registradas nas seções anteriores do relatório, quando existentes, foram devidamente atendidas e solucionadas pela equipe no local.
+
+Ao término das atividades, o local foi deixado em condições normais, sem registros adicionais, sendo a operação finalizada conforme previsto.`;
 
 function buildClasseOptions(selectedValue) {
     const options = ['<option value="">Selecione</option>'];
@@ -146,6 +196,238 @@ function buildClasseOptions(selectedValue) {
     return options.join('');
 }
 
+function getEventTypesDoc() {
+    if (!db) return null;
+    return db.collection(EVENT_TYPES_COLLECTION).doc(EVENT_TYPES_DOC_ID);
+}
+
+function normalizeEventType(value) {
+    return (value || '').trim().toUpperCase();
+}
+
+function renderEventTypeOptions(items, selectedValue = '') {
+    if (!eventTypeSelect) return;
+    const normalizedSelected = normalizeEventType(selectedValue);
+    const uniqueItems = Array.from(new Set((items || []).map(normalizeEventType).filter(Boolean)));
+    if (normalizedSelected && !uniqueItems.includes(normalizedSelected)) {
+        uniqueItems.push(normalizedSelected);
+    }
+    uniqueItems.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+    const options = ['<option value="">Selecione</option>'];
+    uniqueItems.forEach(option => {
+        const isSelected = option === normalizedSelected ? ' selected' : '';
+        options.push(`<option value="${option}"${isSelected}>${option}</option>`);
+    });
+    eventTypeSelect.innerHTML = options.join('');
+}
+
+function renderEventTypeModalList() {
+    if (!eventTypeList) return;
+    eventTypeList.innerHTML = '';
+    if (!eventTypesCache.length) {
+        const empty = document.createElement('p');
+        empty.className = 'modal-helper';
+        empty.textContent = 'Nenhum tipo cadastrado.';
+        eventTypeList.appendChild(empty);
+        return;
+    }
+    eventTypesCache.forEach(type => {
+        const row = document.createElement('div');
+        row.className = 'event-type-item';
+        row.innerHTML = `
+            <span class="event-type-name">${type}</span>
+            <button class="btn-small btn-danger" type="button" data-type="${type}">
+                <i class="fas fa-trash"></i>
+                Excluir
+            </button>
+        `;
+        eventTypeList.appendChild(row);
+    });
+
+    eventTypeList.querySelectorAll('button[data-type]').forEach(button => {
+        button.addEventListener('click', () => {
+            const type = button.getAttribute('data-type');
+            if (!type) return;
+            deleteEventType(type);
+        });
+    });
+}
+
+function openEventTypeModal() {
+    if (!eventTypeModal) return;
+    if (eventTypeModalError) eventTypeModalError.textContent = '';
+    if (eventTypeInput) eventTypeInput.value = '';
+    renderEventTypeModalList();
+    eventTypeModal.style.display = 'flex';
+}
+
+function closeEventTypeModalView() {
+    if (!eventTypeModal) return;
+    eventTypeModal.style.display = 'none';
+}
+
+async function ensureEventTypesDocument() {
+    const docRef = getEventTypesDoc();
+    if (!docRef) return [];
+    try {
+        const snap = await docRef.get();
+        let items = [];
+        if (!snap.exists) {
+            items = ['JOGOS DE FUTEBOL'];
+            await docRef.set({
+                items,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        } else {
+            items = Array.isArray(snap.data()?.items) ? snap.data().items : [];
+            if (items.length === 0) {
+                items = ['JOGOS DE FUTEBOL'];
+                await docRef.set({
+                    items,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            }
+        }
+        return items;
+    } catch (error) {
+        console.error('Erro ao carregar tipos de evento:', error);
+        return [];
+    }
+}
+
+async function loadEventTypes() {
+    if (!db) return;
+    const selectedValue = eventTypeSelect?.value || '';
+    const items = await ensureEventTypesDocument();
+    eventTypesCache = Array.from(new Set(items.map(normalizeEventType).filter(Boolean)));
+    renderEventTypeOptions(eventTypesCache, selectedValue);
+    renderEventTypeModalList();
+}
+
+async function addEventTypeFromModal() {
+    if (!db || !eventTypeInput) return;
+    if (eventTypeModalError) eventTypeModalError.textContent = '';
+    const normalized = normalizeEventType(eventTypeInput.value);
+    if (!normalized) return;
+
+    if (eventTypesCache.includes(normalized)) {
+        if (eventTypeModalError) {
+            eventTypeModalError.textContent = 'Este tipo já existe.';
+        }
+        return;
+    }
+
+    const docRef = getEventTypesDoc();
+    if (!docRef) return;
+    try {
+        await docRef.set({
+            items: firebase.firestore.FieldValue.arrayUnion(normalized),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        await loadEventTypes();
+        eventTypeSelect.value = normalized;
+        eventTypeInput.value = '';
+        triggerSave();
+    } catch (error) {
+        console.error('Erro ao adicionar tipo de evento:', error);
+        if (eventTypeModalError) {
+            eventTypeModalError.textContent = 'Não foi possível adicionar o tipo de evento.';
+        }
+    }
+}
+
+async function deleteEventType(type) {
+    if (!db) return;
+    const normalized = normalizeEventType(type);
+    if (!normalized) return;
+    const confirmed = window.confirm(`Excluir o tipo "${normalized}"?`);
+    if (!confirmed) return;
+
+    const docRef = getEventTypesDoc();
+    if (!docRef) return;
+
+    try {
+        await docRef.set({
+            items: firebase.firestore.FieldValue.arrayRemove(normalized),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        eventTypesCache = eventTypesCache.filter(item => item !== normalized);
+        if (eventTypeSelect && eventTypeSelect.value === normalized) {
+            eventTypeSelect.value = '';
+        }
+        renderEventTypeOptions(eventTypesCache, eventTypeSelect?.value || '');
+        renderEventTypeModalList();
+        await registerEventTypeLog({ action: 'delete-event-type', eventType: normalized });
+        triggerSave();
+    } catch (error) {
+        console.error('Erro ao excluir tipo de evento:', error);
+        if (eventTypeModalError) {
+            eventTypeModalError.textContent = 'Não foi possível excluir o tipo de evento.';
+        }
+    }
+}
+
+function setOperationNumber(sequence, year) {
+    if (!operationNumberInput) return;
+    const formatted = `${String(sequence).padStart(4, '0')}/${year}`;
+    operationNumberInput.value = formatted;
+    operationNumberInput.dataset.sequence = String(sequence);
+    operationNumberInput.dataset.year = String(year);
+}
+
+function getOperationNumberMeta() {
+    if (!operationNumberInput) {
+        return { number: '', sequence: null, year: null };
+    }
+    const number = (operationNumberInput.value || '').trim();
+    let sequence = parseInt(operationNumberInput.dataset.sequence, 10);
+    let year = parseInt(operationNumberInput.dataset.year, 10);
+    if (Number.isNaN(sequence) || Number.isNaN(year)) {
+        const match = number.match(/^(\d{4})\/(\d{4})$/);
+        if (match) {
+            sequence = parseInt(match[1], 10);
+            year = parseInt(match[2], 10);
+        }
+    }
+    return {
+        number,
+        sequence: Number.isNaN(sequence) ? null : sequence,
+        year: Number.isNaN(year) ? null : year
+    };
+}
+
+function getOperationYearForNew() {
+    const dateStr = document.getElementById('operationDate')?.value;
+    if (dateStr) {
+        const date = new Date(`${dateStr}T00:00:00`);
+        if (!Number.isNaN(date.getTime())) return date.getFullYear();
+    }
+    return new Date().getFullYear();
+}
+
+async function assignNextOperationNumber() {
+    if (!db || !operationNumberInput) return;
+    if (operationNumberInput.value && operationNumberInput.value.trim() !== '') return;
+
+    const year = getOperationYearForNew();
+    let maxSequence = 0;
+    try {
+        const snapshot = await db.collection('operations').where('operationYear', '==', year).get();
+        snapshot.forEach(doc => {
+            const data = doc.data() || {};
+            const sequence = parseInt(data.operationSequence, 10) || 0;
+            if (sequence > maxSequence) {
+                maxSequence = sequence;
+            }
+        });
+    } catch (error) {
+        console.error('Erro ao gerar número da operação:', error);
+    }
+    const nextSequence = maxSequence + 1;
+    setOperationNumber(nextSequence, year);
+}
+
 // Initialize with default rows
 function bootApp() {
     initFirebase();
@@ -154,11 +436,10 @@ function bootApp() {
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('operationDate').value = today;
 
-    // Set current time as default for start time
-    const now = new Date();
-    const hours = now.getHours().toString().padStart(2, '0');
-    const minutes = now.getMinutes().toString().padStart(2, '0');
-    document.getElementById('startTime').value = `${hours}:${minutes}`;
+    if (eventTypeSelect) {
+        eventTypeSelect.value = '';
+    }
+    assignNextOperationNumber();
 
     // Load saved data
     loadFormData();
@@ -166,7 +447,8 @@ function bootApp() {
     // Add initial rows if none loaded
     if (areaRows.length === 0) addAreaRow();
     if (vehicleRows.length === 0) addVehicleRow();
-    if (serviceChangeRows.length === 0) addServiceChangeRow();
+    if (serviceChangeRows.length === 0) updateServiceChangesContainer();
+    if (incidentsRows.length === 0) updateIncidentsContainer();
 
     // Update time display
     updateLastSavedTime();
@@ -205,6 +487,8 @@ function initFirebase() {
             showAppView();
             loadOperationsList();
             initializeUserProfileFlow(user);
+            loadEventTypes();
+            assignNextOperationNumber();
         } else {
             showLoginView();
             resetUserProfileState();
@@ -240,6 +524,33 @@ function initializeEventListeners() {
     addAreaBtn.addEventListener('click', addAreaRow);
     addVehicleBtn.addEventListener('click', addVehicleRow);
     addServiceChangeBtn.addEventListener('click', addServiceChangeRow);
+    if (addIncidentBtn) {
+        addIncidentBtn.addEventListener('click', addIncidentRow);
+    }
+    if (addEventTypeBtn) {
+        addEventTypeBtn.addEventListener('click', openEventTypeModal);
+    }
+    if (eventTypeAddConfirm) {
+        eventTypeAddConfirm.addEventListener('click', addEventTypeFromModal);
+    }
+    if (eventTypeInput) {
+        eventTypeInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                addEventTypeFromModal();
+            }
+        });
+    }
+    if (closeEventTypeModal) {
+        closeEventTypeModal.addEventListener('click', closeEventTypeModalView);
+    }
+    if (eventTypeModal) {
+        eventTypeModal.addEventListener('click', (event) => {
+            if (event.target === eventTypeModal) {
+                closeEventTypeModalView();
+            }
+        });
+    }
     
     // Save to Firebase explicitly
     saveDbBtn.addEventListener('click', async () => {
@@ -252,11 +563,16 @@ function initializeEventListeners() {
             saveStatus.textContent = 'Preencha os campos obrigatórios antes de salvar.';
             return;
         }
+        if (!validateOptionalFlags()) {
+            saveStatus.textContent = 'Preencha Ocorrências e Alterações de Serviço ou marque "Sem alteração."';
+            return;
+        }
         if (!isEditAllowed()) {
             saveStatus.textContent = 'Edição bloqueada para esta operação.';
             return;
         }
         saveStatus.textContent = 'Salvando no Firebase...';
+        await assignNextOperationNumber();
         const formData = getFormData();
         const savedId = await saveOperationToFirebase(formData);
         if (savedId) {
@@ -284,6 +600,24 @@ function initializeEventListeners() {
             confirmationModal.style.display = 'none';
         }
     });
+
+    if (confirmResetPassword) {
+        confirmResetPassword.addEventListener('click', async () => {
+            await sendResetPasswordEmail();
+        });
+    }
+    if (cancelResetPassword) {
+        cancelResetPassword.addEventListener('click', () => {
+            closeResetPasswordModal();
+        });
+    }
+    if (resetPasswordModal) {
+        resetPasswordModal.addEventListener('click', (event) => {
+            if (event.target === resetPasswordModal) {
+                closeResetPasswordModal();
+            }
+        });
+    }
     
     // Update total agents count when agents are added/removed
     document.addEventListener('input', () => {
@@ -292,7 +626,10 @@ function initializeEventListeners() {
 
     // Revalidate edit window when date changes
     const operationDateInput = document.getElementById('operationDate');
-    operationDateInput.addEventListener('change', enforceEditWindow);
+    operationDateInput.addEventListener('change', () => {
+        enforceEditWindow();
+        assignNextOperationNumber();
+    });
 
     // App navigation
     currentOperationBtn.addEventListener('click', () => setActiveAppView('form'));
@@ -356,6 +693,12 @@ function initializeEventListeners() {
             applyLogsFilter();
         });
     }
+    if (logsFilterReport) {
+        logsFilterReport.addEventListener('click', () => {
+            logsActionFilter = 'report';
+            applyLogsFilter();
+        });
+    }
     if (logsFilterUpdate) {
         logsFilterUpdate.addEventListener('click', () => {
             logsActionFilter = 'update';
@@ -390,6 +733,17 @@ function initializeEventListeners() {
         operationsCurrentPage = 1;
         loadOperationsList(true);
     });
+
+    if (usersSearchInput) {
+        usersSearchInput.addEventListener('input', () => {
+            usersCurrentPage = 1;
+            applyUsersFilter();
+        });
+        usersSearchInput.addEventListener('change', () => {
+            usersCurrentPage = 1;
+            applyUsersFilter();
+        });
+    }
 
     if (profileMenuBtn && profileMenu) {
         profileMenuBtn.addEventListener('click', (event) => {
@@ -447,6 +801,28 @@ function initializeEventListeners() {
         });
     }
 
+    if (changePasswordBtn) {
+        changePasswordBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            openChangePasswordModal();
+            closeProfileMenu();
+        });
+    }
+
+    if (savePasswordBtn) {
+        savePasswordBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            updateUserPassword();
+        });
+    }
+
+    if (cancelPasswordBtn) {
+        cancelPasswordBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            closeChangePasswordModal();
+        });
+    }
+
     if (saveUserCreateBtn) {
         saveUserCreateBtn.addEventListener('click', (event) => {
             event.preventDefault();
@@ -460,11 +836,28 @@ function initializeEventListeners() {
             closeUserCreateModal();
         });
     }
+
+    if (summaryField) {
+        summaryField.addEventListener('input', () => {
+            updateSummaryTemplateState();
+        });
+        summaryField.addEventListener('change', () => {
+            updateSummaryTemplateState();
+        });
+    }
+    if (insertSummaryTemplateBtn) {
+        insertSummaryTemplateBtn.addEventListener('click', () => {
+            insertSummaryTemplate();
+        });
+    }
 }
 
 function validateRequiredFields() {
     const requiredIds = [
+        'operationNumber',
         'operationName',
+        'operationComplexity',
+        'eventType',
         'operationDate',
         'startTime',
         'endTime',
@@ -657,6 +1050,9 @@ function resetUserProfileState() {
     if (userCreateModal) {
         userCreateModal.style.display = 'none';
     }
+    if (changePasswordModal) {
+        changePasswordModal.style.display = 'none';
+    }
 }
 
 async function initializeUserProfileFlow(user) {
@@ -704,7 +1100,8 @@ function updateProfileSummary(profile) {
     profileSummaryClass.textContent = data.classe || '-';
     profileSummaryWarName.textContent = data.nomeGuerra || '-';
     profileSummaryRegistration.textContent = data.matricula || '-';
-    profileSummaryType.textContent = data.tipo || 'usuario';
+    const tipoValue = data.tipo || 'usuario';
+    profileSummaryType.textContent = tipoValue === 'usuario_restrito' ? 'Usuário restrito' : tipoValue;
 }
 
 function openProfileModal() {
@@ -751,6 +1148,55 @@ function openUserCreateModal() {
 function closeUserCreateModal() {
     if (!userCreateModal) return;
     userCreateModal.style.display = 'none';
+}
+
+function openChangePasswordModal() {
+    if (!changePasswordModal) return;
+    if (changePasswordError) changePasswordError.textContent = '';
+    if (changePasswordForm) changePasswordForm.reset();
+    changePasswordModal.style.display = 'flex';
+    currentPassword?.focus();
+}
+
+function closeChangePasswordModal() {
+    if (!changePasswordModal) return;
+    changePasswordModal.style.display = 'none';
+}
+
+async function updateUserPassword() {
+    if (!auth || !auth.currentUser) return;
+    if (!currentPassword || !newPassword || !confirmPassword) return;
+
+    const currentValue = currentPassword.value.trim();
+    const newValue = newPassword.value.trim();
+    const confirmValue = confirmPassword.value.trim();
+
+    if (!currentValue || !newValue || !confirmValue) {
+        if (changePasswordError) changePasswordError.textContent = 'Preencha todos os campos.';
+        return;
+    }
+
+    if (newValue.length < 6) {
+        if (changePasswordError) changePasswordError.textContent = 'A nova senha deve ter pelo menos 6 caracteres.';
+        return;
+    }
+
+    if (newValue !== confirmValue) {
+        if (changePasswordError) changePasswordError.textContent = 'A confirmação de senha não confere.';
+        return;
+    }
+
+    try {
+        const user = auth.currentUser;
+        const credential = firebase.auth.EmailAuthProvider.credential(user.email, currentValue);
+        await user.reauthenticateWithCredential(credential);
+        await user.updatePassword(newValue);
+        if (changePasswordError) changePasswordError.textContent = 'Senha alterada com sucesso.';
+        setTimeout(closeChangePasswordModal, 800);
+    } catch (error) {
+        console.error('Erro ao alterar senha:', error);
+        if (changePasswordError) changePasswordError.textContent = 'Falha ao alterar senha. Verifique a senha atual.';
+    }
 }
 
 function validateProfileFields({ classe, nomeGuerra, matricula }) {
@@ -800,6 +1246,7 @@ async function ensureUserProfile(user) {
 
         currentUserProfile = profileData;
         isAdmin = currentUserProfile.tipo === 'administrador';
+        isRestricted = currentUserProfile.tipo === 'usuario_restrito';
         updateAdminVisibility();
         updateProfileSummary(currentUserProfile);
     } catch (error) {
@@ -907,7 +1354,7 @@ async function createNewUser() {
 async function loadUsersList(force = false) {
     if (!db || !auth || !auth.currentUser || !isAdmin || isLoadingUsers) return;
     if (usersCache.length > 0 && !force) {
-        renderUsersTable(usersCache);
+        applyUsersFilter();
         return;
     }
 
@@ -919,7 +1366,8 @@ async function loadUsersList(force = false) {
     try {
         const snapshot = await getUsersCollection().orderBy('nomeGuerra').get();
         usersCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        renderUsersTable(usersCache);
+        usersCurrentPage = 1;
+        applyUsersFilter();
     } catch (error) {
         console.error('Erro ao carregar usuários:', error);
         if (usersTableBody) {
@@ -930,15 +1378,42 @@ async function loadUsersList(force = false) {
     }
 }
 
+function applyUsersFilter() {
+    const query = (usersSearchInput?.value || '').trim().toLowerCase();
+    const filtered = usersCache.filter(user => {
+        const searchText = [
+            user.classe || '',
+            user.nomeGuerra || '',
+            user.email || '',
+            user.matricula || '',
+            user.tipo || ''
+        ].join(' ').toLowerCase();
+        if (query && !searchText.includes(query)) return false;
+        return true;
+    });
+
+    renderUsersTable(filtered);
+}
+
 function renderUsersTable(users) {
     if (!usersTableBody) return;
     if (!users.length) {
         usersTableBody.innerHTML = '<tr><td colspan="6">Nenhum usuário encontrado.</td></tr>';
+        if (usersPagination) {
+            usersPagination.innerHTML = '';
+        }
         return;
     }
 
+    const totalPages = Math.ceil(users.length / USERS_PAGE_SIZE);
+    if (usersCurrentPage > totalPages) {
+        usersCurrentPage = totalPages;
+    }
+    const startIndex = (usersCurrentPage - 1) * USERS_PAGE_SIZE;
+    const pageItems = users.slice(startIndex, startIndex + USERS_PAGE_SIZE);
+
     usersTableBody.innerHTML = '';
-    users.forEach(user => {
+    pageItems.forEach(user => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>${user.classe || '-'}</td>
@@ -949,6 +1424,9 @@ function renderUsersTable(users) {
             <td>
                 <button class="btn-small" data-user-id="${user.id}">
                     <i class="fas fa-pen"></i> Editar
+                </button>
+                <button class="btn-small" data-user-reset-id="${user.id}">
+                    <i class="fas fa-envelope"></i> Redefinir senha
                 </button>
                 ${isAdmin ? `
                 <button class="btn-small btn-danger" data-user-delete-id="${user.id}">
@@ -967,6 +1445,17 @@ function renderUsersTable(users) {
             const user = usersCache.find(item => item.id === userId);
             if (user) {
                 openUserEditModal(user);
+            }
+        });
+    });
+
+    usersTableBody.querySelectorAll('button[data-user-reset-id]').forEach(button => {
+        button.addEventListener('click', () => {
+            if (!isAdmin) return;
+            const userId = button.getAttribute('data-user-reset-id');
+            const user = usersCache.find(item => item.id === userId);
+            if (user) {
+                openResetPasswordModal(user);
             }
         });
     });
@@ -994,13 +1483,117 @@ function renderUsersTable(users) {
                     targetUserId: userId,
                     targetUserEmail: user.email || null
                 });
-                renderUsersTable(usersCache);
+                applyUsersFilter();
             } catch (error) {
                 console.error('Erro ao excluir usuário:', error);
                 alert('Falha ao excluir o usuário.');
             }
         });
     });
+
+    renderUsersPagination(totalPages);
+}
+
+function renderUsersPagination(totalPages) {
+    if (!usersPagination) return;
+    usersPagination.innerHTML = '';
+    if (totalPages <= 1) return;
+
+    const prevBtn = document.createElement('button');
+    prevBtn.className = 'pagination-btn';
+    prevBtn.textContent = 'Anterior';
+    prevBtn.disabled = usersCurrentPage === 1;
+    prevBtn.addEventListener('click', () => {
+        usersCurrentPage -= 1;
+        applyUsersFilter();
+    });
+    usersPagination.appendChild(prevBtn);
+
+    for (let i = 1; i <= totalPages; i += 1) {
+        const pageBtn = document.createElement('button');
+        pageBtn.className = 'pagination-btn';
+        if (i === usersCurrentPage) pageBtn.classList.add('active');
+        pageBtn.textContent = String(i);
+        pageBtn.addEventListener('click', () => {
+            usersCurrentPage = i;
+            applyUsersFilter();
+        });
+        usersPagination.appendChild(pageBtn);
+    }
+
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'pagination-btn';
+    nextBtn.textContent = 'Próximo';
+    nextBtn.disabled = usersCurrentPage === totalPages;
+    nextBtn.addEventListener('click', () => {
+        usersCurrentPage += 1;
+        applyUsersFilter();
+    });
+    usersPagination.appendChild(nextBtn);
+}
+
+function updateSummaryTemplateState() {
+    if (!summaryField || !insertSummaryTemplateBtn) return;
+    const isBlank = summaryField.value.trim() === '';
+    insertSummaryTemplateBtn.disabled = !isBlank;
+    if (summaryTemplateWarning) {
+        summaryTemplateWarning.classList.toggle('hidden', isBlank);
+    }
+    if (isBlank && summaryTemplateInfo) {
+        summaryTemplateInfo.classList.add('hidden');
+    }
+}
+
+function insertSummaryTemplate() {
+    if (!summaryField) return;
+    if (summaryField.value.trim() !== '') return;
+    summaryField.value = SUMMARY_TEMPLATE_TEXT;
+    if (summaryTemplateInfo) {
+        summaryTemplateInfo.classList.remove('hidden');
+    }
+    updateSummaryTemplateState();
+    autoExpandTextarea(summaryField);
+    triggerSave();
+}
+
+function openResetPasswordModal(user) {
+    if (!resetPasswordModal) return;
+    resetPasswordTarget = user || null;
+    if (resetPasswordError) resetPasswordError.textContent = '';
+    const name = user?.nomeGuerra || user?.email || 'este usuário';
+    const email = user?.email || 'sem e-mail cadastrado';
+    if (resetPasswordMessage) {
+        resetPasswordMessage.textContent = `Deseja enviar um e-mail de redefinição de senha para ${name} (${email})? Oriente o usuário a verificar também a caixa de spam.`;
+    }
+    resetPasswordModal.style.display = 'flex';
+}
+
+function closeResetPasswordModal() {
+    if (!resetPasswordModal) return;
+    resetPasswordModal.style.display = 'none';
+    resetPasswordTarget = null;
+    if (resetPasswordError) resetPasswordError.textContent = '';
+}
+
+async function sendResetPasswordEmail() {
+    if (!auth || !isAdmin) return;
+    if (!resetPasswordTarget) return;
+    const email = (resetPasswordTarget.email || '').trim();
+    if (!email) {
+        if (resetPasswordError) resetPasswordError.textContent = 'Este usuário não possui e-mail cadastrado.';
+        return;
+    }
+
+    try {
+        await auth.sendPasswordResetEmail(email);
+        closeResetPasswordModal();
+        alert('E-mail de redefinição enviado com sucesso.');
+    } catch (error) {
+        console.error('Erro ao enviar e-mail de redefinição:', error);
+        if (resetPasswordError) {
+            resetPasswordError.textContent = 'Falha ao enviar o e-mail. Tente novamente.';
+        }
+    }
 }
 
 async function saveEditedUserProfile() {
@@ -1122,8 +1715,14 @@ function enforceEditWindow() {
     addAreaBtn.disabled = !allowed;
     addVehicleBtn.disabled = !allowed;
     addServiceChangeBtn.disabled = !allowed;
+    if (addIncidentBtn) {
+        addIncidentBtn.disabled = !allowed;
+    }
     clearBtn.disabled = !allowed;
     saveDbBtn.disabled = !allowed;
+    if (addEventTypeBtn) {
+        addEventTypeBtn.disabled = !allowed;
+    }
 }
 
 function triggerSave() {
@@ -1149,7 +1748,7 @@ function updateTotalAgentsCount() {
     document.getElementById('totalAgents').textContent = total;
 }
 
-function getPostOptionsList() {
+function getPostOptionsList(currentRowId) {
     const options = new Set();
     vehicleRows.forEach(row => {
         const prefix = (row.prefix || '').trim();
@@ -1159,13 +1758,25 @@ function getPostOptionsList() {
             options.add(label);
         }
     });
-    options.add('Agentes a Pé');
-    return Array.from(options).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+    const usedPosts = new Set();
+    areaRows.forEach(row => {
+        if (currentRowId && row.id === currentRowId) return;
+        const value = (row.post || row.vehicle || '').trim();
+        if (value) {
+            usedPosts.add(value);
+        }
+    });
+
+    const filtered = Array.from(options).filter(option => !usedPosts.has(option));
+    const result = new Set(filtered);
+    result.add('Agentes a Pé');
+    return Array.from(result).sort((a, b) => a.localeCompare(b, 'pt-BR'));
 }
 
-function buildPostOptions(selectedValue) {
+function buildPostOptions(selectedValue, currentRowId) {
     const options = ['<option value="">Selecione</option>'];
-    getPostOptionsList().forEach(option => {
+    getPostOptionsList(currentRowId).forEach(option => {
         const isSelected = option === selectedValue ? ' selected' : '';
         options.push(`<option value="${option}"${isSelected}>${option}</option>`);
     });
@@ -1208,13 +1819,13 @@ function updateAreaTable() {
     areaRows.forEach(row => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td><input type="text" class="area-input" data-id="${row.id}" data-field="area" value="${row.area}" placeholder="Ex: Centro Comercial"></td>
-            <td><input type="number" class="area-input" data-id="${row.id}" data-field="agents" value="${row.agents}" min="0" placeholder="0"></td>
             <td>
                 <select class="area-input" data-id="${row.id}" data-field="post">
-                    ${buildPostOptions(row.post || row.vehicle || '')}
+                    ${buildPostOptions(row.post || row.vehicle || '', row.id)}
                 </select>
             </td>
+            <td><input type="number" class="area-input" data-id="${row.id}" data-field="agents" value="${row.agents}" min="0" placeholder="0"></td>
+            <td><input type="text" class="area-input" data-id="${row.id}" data-field="area" value="${row.area}" placeholder="Ex: Centro Comercial"></td>
             <td><button class="btn-small btn-danger remove-area-row" data-id="${row.id}"><i class="fas fa-trash-alt"></i> Remover</button></td>
         `;
         areaTableBody.appendChild(tr);
@@ -1258,20 +1869,20 @@ function updateAreaCards() {
         card.className = 'area-card';
         card.innerHTML = `
             <div class="card-row">
-                <span class="card-label">Área/Local:</span>
-                <span><input type="text" class="card-input" data-id="${row.id}" data-field="area" value="${row.area}" placeholder="Ex: Centro Comercial"></span>
+                <span class="card-label">Posto:</span>
+                <span>
+                    <select class="card-input" data-id="${row.id}" data-field="post">
+                        ${buildPostOptions(row.post || row.vehicle || '', row.id)}
+                    </select>
+                </span>
             </div>
             <div class="card-row">
                 <span class="card-label">Qtd. Agentes:</span>
                 <span><input type="number" class="card-input" data-id="${row.id}" data-field="agents" value="${row.agents}" min="0" placeholder="0"></span>
             </div>
             <div class="card-row">
-                <span class="card-label">Posto:</span>
-                <span>
-                    <select class="card-input" data-id="${row.id}" data-field="post">
-                        ${buildPostOptions(row.post || row.vehicle || '')}
-                    </select>
-                </span>
+                <span class="card-label">Área/Local:</span>
+                <span><input type="text" class="card-input" data-id="${row.id}" data-field="area" value="${row.area}" placeholder="Ex: Centro Comercial"></span>
             </div>
             <div class="card-actions">
                 <button class="btn-small btn-danger remove-area-row" data-id="${row.id}"><i class="fas fa-trash-alt"></i> Remover</button>
@@ -1500,10 +2111,6 @@ function addServiceChangeRow() {
 }
 
 function removeServiceChangeRow(rowId) {
-    if (serviceChangeRows.length <= 1) {
-        return;
-    }
-    
     serviceChangeRows = serviceChangeRows.filter(row => row.id !== rowId);
     // Reindex items
     serviceChangeRows.forEach((row, index) => {
@@ -1516,7 +2123,6 @@ function removeServiceChangeRow(rowId) {
 function updateServiceChangesContainer() {
     const container = document.getElementById('serviceChangesContainer');
     container.innerHTML = '';
-    const isOnlyOne = serviceChangeRows.length === 1;
     
     serviceChangeRows.forEach(row => {
         const itemDiv = document.createElement('div');
@@ -1524,7 +2130,7 @@ function updateServiceChangesContainer() {
         itemDiv.innerHTML = `
             <div class="service-change-header">
                 <h4>Alteração ${row.index}</h4>
-                <button class="btn-small btn-danger remove-service-change-row" data-id="${row.id}" ${isOnlyOne ? 'disabled' : ''}>
+                <button class="btn-small btn-danger remove-service-change-row" data-id="${row.id}">
                     <i class="fas fa-trash-alt"></i> Remover
                 </button>
             </div>
@@ -1562,11 +2168,94 @@ function updateServiceChangesContainer() {
             removeServiceChangeRow(rowId);
         });
     });
+
+    if (serviceChangesNoChangeRow) {
+        serviceChangesNoChangeRow.classList.toggle('hidden', serviceChangeRows.length > 0);
+        if (serviceChangeRows.length > 0 && serviceChangesNoChange) {
+            serviceChangesNoChange.checked = false;
+        }
+    }
+}
+
+// INCIDENTS FUNCTIONS
+function addIncidentRow() {
+    const rowId = Date.now();
+    const newRow = {
+        id: rowId,
+        description: ''
+    };
+    incidentsRows.push(newRow);
+    updateIncidentsContainer();
+    triggerSave();
+}
+
+function removeIncidentRow(rowId) {
+    incidentsRows = incidentsRows.filter(row => row.id !== rowId);
+    updateIncidentsContainer();
+    triggerSave();
+}
+
+function updateIncidentsContainer() {
+    if (!incidentsContainer) return;
+    incidentsContainer.innerHTML = '';
+
+    incidentsRows.forEach((row, index) => {
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'service-change-item';
+        itemDiv.innerHTML = `
+            <div class="service-change-header">
+                <h4>Ocorrência ${index + 1}</h4>
+                <button class="btn-small btn-danger remove-incident-row" data-id="${row.id}">
+                    <i class="fas fa-trash-alt"></i> Remover
+                </button>
+            </div>
+            <textarea class="service-change-textarea incident-textarea" data-id="${row.id}" placeholder="Descreva a ocorrência registrada">${row.description}</textarea>
+        `;
+        incidentsContainer.appendChild(itemDiv);
+    });
+
+    document.querySelectorAll('.incident-textarea').forEach(textarea => {
+        autoExpandTextarea(textarea);
+        textarea.addEventListener('input', (e) => {
+            autoExpandTextarea(e.target);
+            const rowId = parseInt(e.target.getAttribute('data-id'));
+            const value = e.target.value;
+            const rowIndex = incidentsRows.findIndex(row => row.id === rowId);
+            if (rowIndex !== -1) {
+                incidentsRows[rowIndex].description = value;
+                triggerSave();
+            }
+        });
+    });
+
+    document.querySelectorAll('.remove-incident-row').forEach(button => {
+        button.addEventListener('click', (e) => {
+            const rowId = parseInt(e.target.getAttribute('data-id'));
+            removeIncidentRow(rowId);
+        });
+    });
+
+    if (incidentsNoChangeRow) {
+        incidentsNoChangeRow.classList.toggle('hidden', incidentsRows.length > 0);
+        if (incidentsRows.length > 0 && incidentsNoChange) {
+            incidentsNoChange.checked = false;
+        }
+    }
 }
 
 function getFormData() {
+    const operationNumberMeta = getOperationNumberMeta();
+    const incidentsText = incidentsRows
+        .map(row => (row.description || '').trim())
+        .filter(Boolean)
+        .join('\n\n');
     return {
+        operationNumber: operationNumberMeta.number,
+        operationSequence: operationNumberMeta.sequence,
+        operationYear: operationNumberMeta.year,
         operationName: document.getElementById('operationName').value,
+        operationComplexity: document.getElementById('operationComplexity').value,
+        eventType: document.getElementById('eventType').value,
         operationDate: document.getElementById('operationDate').value,
         startTime: document.getElementById('startTime').value,
         endTime: document.getElementById('endTime').value,
@@ -1576,7 +2265,8 @@ function getFormData() {
         registration: document.getElementById('registration').value,
         position: document.getElementById('position').value,
         totalAgents: document.getElementById('totalAgents').textContent,
-        incidents: document.getElementById('incidents').value,
+        incidents: incidentsText,
+        incidentsRows: incidentsRows,
         summary: document.getElementById('summary').value,
         areaRows: areaRows,
         vehicleRows: vehicleRows,
@@ -1586,7 +2276,27 @@ function getFormData() {
 }
 
 function applyFormData(formData) {
+    if (operationNumberInput) {
+        operationNumberInput.value = formData.operationNumber || '';
+        if (formData.operationSequence) {
+            operationNumberInput.dataset.sequence = String(formData.operationSequence);
+        }
+        if (formData.operationYear) {
+            operationNumberInput.dataset.year = String(formData.operationYear);
+        }
+        if ((!formData.operationSequence || !formData.operationYear) && formData.operationNumber) {
+            const match = String(formData.operationNumber).match(/^(\d{4})\/(\d{4})$/);
+            if (match) {
+                operationNumberInput.dataset.sequence = match[1];
+                operationNumberInput.dataset.year = match[2];
+            }
+        }
+    }
     document.getElementById('operationName').value = formData.operationName || '';
+    document.getElementById('operationComplexity').value = formData.operationComplexity || '';
+    if (eventTypeSelect) {
+        eventTypeSelect.value = formData.eventType || '';
+    }
     document.getElementById('operationDate').value = formData.operationDate || '';
     document.getElementById('startTime').value = formData.startTime || '';
     document.getElementById('endTime').value = formData.endTime || '';
@@ -1596,7 +2306,6 @@ function applyFormData(formData) {
     document.getElementById('registration').value = formData.registration || '';
     document.getElementById('position').value = formData.position || '';
     document.getElementById('totalAgents').textContent = formData.totalAgents || '0';
-    document.getElementById('incidents').value = formData.incidents || '';
     document.getElementById('summary').value = formData.summary || '';
     currentOperationMeta = {
         ownerId: formData.ownerId || null,
@@ -1628,6 +2337,23 @@ function applyFormData(formData) {
             index: index + 1
         }));
         updateServiceChangesContainer();
+    } else {
+        serviceChangeRows = [];
+        updateServiceChangesContainer();
+    }
+
+    if (formData.incidentsRows && formData.incidentsRows.length > 0) {
+        incidentsRows = formData.incidentsRows.map(row => ({
+            ...row,
+            description: row.description || ''
+        }));
+        updateIncidentsContainer();
+    } else if (formData.incidents && String(formData.incidents).trim()) {
+        incidentsRows = [{ id: Date.now(), description: String(formData.incidents) }];
+        updateIncidentsContainer();
+    } else {
+        incidentsRows = [];
+        updateIncidentsContainer();
     }
 
     updateTotalAgentsCount();
@@ -1636,7 +2362,9 @@ function applyFormData(formData) {
         requestAnimationFrame(expandAllTextareas);
     });
 
+    assignNextOperationNumber();
     enforceEditWindow();
+    updateSummaryTemplateState();
 }
 
 // Save form data to localStorage
@@ -1717,6 +2445,7 @@ async function saveOperationToFirebase(formData) {
             if (changedFields.length > 0) {
                 await registerOperationEditLog({
                     operationId: docRef.id,
+                    operationNumber: payload.operationNumber || previousData.operationNumber || null,
                     operationName: payload.operationName || previousData.operationName || null,
                     changedFields
                 });
@@ -1766,7 +2495,23 @@ function applyOperationsFilter() {
 
     const filtered = operationsCache.filter(operation => {
         if (forcedOperationIdFilter && operation.id !== forcedOperationIdFilter) return false;
-        const searchText = `${operation.operationName || ''} ${operation.coordinatorName || ''} ${operation.location || ''} ${operation.neighborhood || ''} ${operation.registration || ''}`.toLowerCase();
+        if (isRestricted && auth?.currentUser && operation.ownerId !== auth.currentUser.uid) return false;
+        const searchText = [
+            operation.operationNumber || '',
+            operation.eventType || '',
+            operation.operationComplexity || '',
+            operation.operationName || '',
+            formatDate(operation.operationDate),
+            operation.location || '',
+            operation.neighborhood || '',
+            operation.totalAgents || '',
+            operation.coordinatorName || '',
+            operation.registration || '',
+            operation.createdBy?.nomeGuerra || '',
+            formatDateTime(operation.createdAt),
+            operation.updatedBy?.nomeGuerra || '',
+            formatDateTime(operation.updatedAt)
+        ].join(' ').toLowerCase();
         if (textValue && !searchText.includes(textValue)) return false;
 
         if (dateFrom || dateTo) {
@@ -1805,6 +2550,9 @@ function renderOperationsList(operations) {
             <div class="operation-header">
                 <div class="operation-title">${operation.operationName || 'Operação sem nome'}</div>
                 <div class="operation-highlight">
+                        <span><strong>Nº:</strong> ${operation.operationNumber || 'Não informado'}</span>
+                        <span><strong>Tipo:</strong> ${operation.eventType || 'Não informado'}</span>
+                        <span><strong>Complexidade:</strong> ${operation.operationComplexity || 'Não informado'}</span>
                     <span><strong>Data:</strong> ${formatDate(operation.operationDate)}</span>
                     <span><strong>Local:</strong> ${(operation.location || 'Não informado')}${operation.neighborhood ? ` - ${operation.neighborhood}` : ''}</span>
                     <span><strong>Efetivo:</strong> ${operation.totalAgents || '0'}</span>
@@ -1875,6 +2623,7 @@ function renderOperationsList(operations) {
                     action: 'delete-operation',
                     justification: justification.trim(),
                     operationId: id,
+                    operationNumber: operation.operationNumber || null,
                     operationName: operation.operationName || null
                 });
                 applyOperationsFilter();
@@ -1969,20 +2718,21 @@ function clearForm() {
     formInputs.forEach(input => {
         if (input.type === 'number') {
             input.value = '0';
-        } else if (input.type !== 'date' && input.type !== 'time') {
+        } else {
             input.value = '';
         }
     });
+    if (incidentsNoChange) incidentsNoChange.checked = false;
+    if (serviceChangesNoChange) serviceChangesNoChange.checked = false;
+    if (operationNumberInput) {
+        operationNumberInput.dataset.sequence = '';
+        operationNumberInput.dataset.year = '';
+    }
     
-    // Set today's date as default
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('operationDate').value = today;
-    
-    // Set current time as default for start time
-    const now = new Date();
-    const hours = now.getHours().toString().padStart(2, '0');
-    const minutes = now.getMinutes().toString().padStart(2, '0');
-    document.getElementById('startTime').value = `${hours}:${minutes}`;
+    // Clear date/time fields explicitly
+    document.getElementById('operationDate').value = '';
+    document.getElementById('startTime').value = '';
+    document.getElementById('endTime').value = '';
     
     // Reset dynamic rows
     areaRows = [{
@@ -1999,11 +2749,8 @@ function clearForm() {
         type: ''
     }];
     
-    serviceChangeRows = [{
-        id: Date.now() + 2,
-        description: '',
-        index: 1
-    }];
+    serviceChangeRows = [];
+    incidentsRows = [];
     
     // Update tables and cards
     updateAreaTable();
@@ -2012,6 +2759,7 @@ function clearForm() {
     updateVehiclesTable();
     updateVehiclesCards();
     updateServiceChangesContainer();
+    updateIncidentsContainer();
     
     // Update counts
     updateTotalAgentsCount();
@@ -2029,6 +2777,8 @@ function clearForm() {
     setTimeout(() => {
         saveStatus.textContent = 'Salvo automaticamente';
     }, 2000);
+
+    updateSummaryTemplateState();
 }
 
 // Export to PDF with improved layout
@@ -2332,13 +3082,17 @@ async function exportToPDF() {
     }
     
     // 1. IDENTIFICAÇÃO DA OPERAÇÃO
+    const operationNumber = document.getElementById('operationNumber')?.value || 'Não informado';
     const operationDate = document.getElementById('operationDate').value || 'Não informado';
     const startTime = document.getElementById('startTime').value || 'Não informado';
     const endTime = document.getElementById('endTime').value || 'Não informado';
+    const eventType = document.getElementById('eventType')?.value || 'Não informado';
     const location = document.getElementById('location').value || 'Não informado';
     const neighborhood = document.getElementById('neighborhood').value || 'Não informado';
     
     const identificationContent = `Operação: ${operationName}
+Nº da Operação: ${operationNumber}
+Tipo Evento: ${eventType}
 Data: ${formatDate(operationDate)}
 Período: ${startTime} às ${endTime}
 Local: ${location} - ${neighborhood}`;
@@ -2391,14 +3145,14 @@ Cargo/Função: ${position}`;
     yPos += 2;
     
     if (areaRows.length > 0) {
-        const areaHeaders = ['ÁREA/LOCAL', 'QTD. AGENTES', 'POSTO'];
+        const areaHeaders = ['POSTO', 'QTD. AGENTES', 'ÁREA/LOCAL'];
         const areaData = areaRows.map(row => [
-            row.area || '-',
+            row.post || row.vehicle || '-',
             row.agents || '0',
-            row.post || row.vehicle || '-'
+            row.area || '-'
         ]);
         
-        const areaColWidths = [70, 35, 45];
+        const areaColWidths = [45, 35, 70];
         
         // Calculate total agents distributed
         const totalAgentsDistributed = areaRows.reduce((sum, row) => sum + (parseInt(row.agents) || 0), 0);
@@ -2410,8 +3164,14 @@ Cargo/Função: ${position}`;
     }
 
     // 5. REGISTRO DE OCORRÊNCIAS
-    const incidents = document.getElementById('incidents').value || 'Nenhuma ocorrência registrada durante a operação.';
-     addSectionJustified('5. REGISTRO DE OCORRÊNCIAS', incidents);
+    const incidentLines = incidentsRows
+        .map(row => (row.description || '').trim())
+        .filter(Boolean)
+        .map((text, index) => `Ocorrência ${index + 1}: ${text}`);
+    const incidentsText = incidentLines.length
+        ? incidentLines.join('\n')
+        : 'Nenhuma ocorrência registrada durante a operação.';
+     addSectionJustified('5. REGISTRO DE OCORRÊNCIAS', incidentsText);
     
      // Adicione espaço extra aqui:
     yPos += 2;
@@ -2474,9 +3234,9 @@ Cargo/Função: ${position}`;
      // Adicione espaço extra aqui:
     yPos += 2;
 
-    // 8. RESUMO DA OPERAÇÃO
+    // 7. RESUMO DA OPERAÇÃO
     const summary = document.getElementById('summary').value || 'Nenhum resumo fornecido.';
-    addSectionJustified('8. RESUMO DA OPERAÇÃO', summary);
+    addSectionJustified('7. RESUMO DA OPERAÇÃO', summary);
 
      // Adicione espaço extra aqui:
     yPos += 2;
@@ -2566,6 +3326,12 @@ Cargo/Função: ${position}`;
 
     // Save the PDF with cleaned filename
     doc.save(fileName);
+
+    await registerReportLog({
+        operationId: currentOperationId || null,
+        operationNumber: document.getElementById('operationNumber')?.value || null,
+        operationName: document.getElementById('operationName')?.value || null
+    });
 }
 
 // Helper function to format date
@@ -2628,7 +3394,7 @@ async function registerAccessLog(user) {
     }
 }
 
-async function registerAdminActionLog({ action, justification, operationId, operationName, targetUserId, targetUserEmail }) {
+async function registerAdminActionLog({ action, justification, operationId, operationNumber, operationName, targetUserId, targetUserEmail }) {
     if (!db || !auth || !auth.currentUser) return;
     try {
         const payload = {
@@ -2640,7 +3406,8 @@ async function registerAdminActionLog({ action, justification, operationId, oper
             action,
             justification,
             operationId,
-            operationName,
+            operationNumber: operationNumber || null,
+            operationName: operationName || null,
             targetUserId: targetUserId || null,
             targetUserEmail: targetUserEmail || null,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -2651,7 +3418,28 @@ async function registerAdminActionLog({ action, justification, operationId, oper
     }
 }
 
-async function registerOperationEditLog({ operationId, operationName, changedFields }) {
+async function registerEventTypeLog({ action, eventType }) {
+    if (!db || !auth || !auth.currentUser) return;
+    try {
+        const payload = {
+            uid: auth.currentUser.uid,
+            email: auth.currentUser.email || null,
+            classe: currentUserProfile?.classe || null,
+            nomeGuerra: currentUserProfile?.nomeGuerra || auth.currentUser.displayName || null,
+            matricula: currentUserProfile?.matricula || null,
+            action,
+            justification: `Tipo de evento: ${eventType}`,
+            operationId: null,
+            operationName: null,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        await getAccessLogsCollection().add(payload);
+    } catch (error) {
+        console.error('Erro ao registrar log de tipo de evento:', error);
+    }
+}
+
+async function registerOperationEditLog({ operationId, operationNumber, operationName, changedFields }) {
     if (!db || !auth || !auth.currentUser) return;
     try {
         const payload = {
@@ -2663,7 +3451,8 @@ async function registerOperationEditLog({ operationId, operationName, changedFie
             action: 'update-operation',
             justification: changedFields.join(', '),
             operationId,
-            operationName,
+            operationNumber: operationNumber || null,
+            operationName: operationName || null,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         };
         await getAccessLogsCollection().add(payload);
@@ -2672,9 +3461,34 @@ async function registerOperationEditLog({ operationId, operationName, changedFie
     }
 }
 
+async function registerReportLog({ operationId, operationNumber, operationName }) {
+    if (!db || !auth || !auth.currentUser) return;
+    try {
+        const payload = {
+            uid: auth.currentUser.uid,
+            email: auth.currentUser.email || null,
+            classe: currentUserProfile?.classe || null,
+            nomeGuerra: currentUserProfile?.nomeGuerra || auth.currentUser.displayName || null,
+            matricula: currentUserProfile?.matricula || null,
+            action: 'report-issued',
+            justification: `operação "${operationName || 'Não informado'}" emitida.`,
+            operationId: operationId || null,
+            operationNumber: operationNumber || null,
+            operationName: operationName || null,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        await getAccessLogsCollection().add(payload);
+    } catch (error) {
+        console.error('Erro ao registrar emissão de relatório:', error);
+    }
+}
+
 function getChangedOperationFields(previousData, nextData) {
     const fields = [
+        { key: 'operationNumber', label: 'Nº da operação' },
         { key: 'operationName', label: 'Nome da operação' },
+        { key: 'operationComplexity', label: 'Complexidade' },
+        { key: 'eventType', label: 'Tipo de evento' },
         { key: 'operationDate', label: 'Data' },
         { key: 'startTime', label: 'Horário de início' },
         { key: 'endTime', label: 'Horário de término' },
@@ -2688,17 +3502,61 @@ function getChangedOperationFields(previousData, nextData) {
         { key: 'summary', label: 'Resumo' },
         { key: 'areaRows', label: 'Áreas de atuação' },
         { key: 'vehicleRows', label: 'Viaturas' },
-        { key: 'serviceChangeRows', label: 'Mudanças de serviço' }
+        { key: 'serviceChangeRows', label: 'Alterações de Serviço' }
     ];
+
+    const normalizeText = (value) => (value || '').toString().trim();
+
+    const normalizeArrayRows = (key, value) => {
+        if (!Array.isArray(value)) return value;
+        const mapped = value.map(row => {
+            if (!row || typeof row !== 'object') return row;
+            if (key === 'areaRows') {
+                return {
+                    area: normalizeText(row.area),
+                    agents: normalizeText(row.agents),
+                    post: normalizeText(row.post || row.vehicle)
+                };
+            }
+            if (key === 'vehicleRows') {
+                return {
+                    prefix: normalizeText(row.prefix),
+                    post: normalizeText(row.post),
+                    type: normalizeText(row.type)
+                };
+            }
+            if (key === 'serviceChangeRows') {
+                return { description: normalizeText(row.description) };
+            }
+            if (key === 'incidentsRows') {
+                return { description: normalizeText(row.description) };
+            }
+            const { id, index, ...rest } = row;
+            return rest;
+        });
+
+        const filtered = mapped.filter(item => {
+            if (!item || typeof item !== 'object') return Boolean(item);
+            return Object.values(item).some(value => normalizeText(value) !== '');
+        });
+
+        return filtered
+            .map(item => JSON.stringify(item))
+            .sort()
+            .join('|');
+    };
 
     return fields
         .filter(field => {
             const prevValue = previousData?.[field.key] ?? null;
             const nextValue = nextData?.[field.key] ?? null;
-            if (Array.isArray(prevValue) || Array.isArray(nextValue) || typeof prevValue === 'object' || typeof nextValue === 'object') {
-                return JSON.stringify(prevValue) !== JSON.stringify(nextValue);
+            if (Array.isArray(prevValue) || Array.isArray(nextValue)) {
+                return normalizeArrayRows(field.key, prevValue) !== normalizeArrayRows(field.key, nextValue);
             }
-            return prevValue !== nextValue;
+            if (typeof prevValue === 'object' || typeof nextValue === 'object') {
+                return JSON.stringify(prevValue || {}) !== JSON.stringify(nextValue || {});
+            }
+            return normalizeText(prevValue) !== normalizeText(nextValue);
         })
         .map(field => field.label);
 }
@@ -2742,7 +3600,7 @@ function renderLogsTable(logs) {
     logsTableBody.innerHTML = '';
     logs.forEach(log => {
         const actionLabel = getLogActionLabel(log.action);
-        const operationInfo = log.operationName || log.operationId || '-';
+        const operationInfo = log.operationNumber || log.operationId || '-';
         const justification = log.justification || '-';
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -2763,6 +3621,7 @@ function getLogActionLabel(action) {
     if (!action || action === 'login') return 'Acesso';
     if (action === 'update-operation') return 'Alteração de operação';
     if (action === 'delete-operation') return 'Exclusão de operação';
+    if (action === 'report-issued') return 'Emissão de relatório';
     if (action === 'delete-user') return 'Exclusão de usuário';
     return action;
 }
@@ -2788,6 +3647,9 @@ function applyLogsFilter() {
         if (logsActionFilter === 'access') {
             return !log.action || log.action === 'login';
         }
+        if (logsActionFilter === 'report') {
+            return log.action === 'report-issued';
+        }
         if (logsActionFilter === 'update') {
             return log.action && log.action.startsWith('update');
         }
@@ -2798,4 +3660,22 @@ function applyLogsFilter() {
     });
 
     renderLogsTable(filtered);
+}
+
+function hasServiceChangesContent() {
+    return serviceChangeRows.some(row => (row.description || '').trim() !== '');
+}
+
+function validateOptionalFlags() {
+    if (incidentsRows.length === 0 && incidentsNoChange && !incidentsNoChange.checked) {
+        incidentsNoChange.focus();
+        return false;
+    }
+
+    if (serviceChangeRows.length === 0 && serviceChangesNoChange && !serviceChangesNoChange.checked) {
+        serviceChangesNoChange.focus();
+        return false;
+    }
+
+    return true;
 }

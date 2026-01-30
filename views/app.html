@@ -33,10 +33,14 @@
             <div class="profile-menu" id="profileMenuContainer">
                 <button class="btn-small" id="profileMenuBtn" aria-haspopup="true" aria-expanded="false">
                     <i class="fas fa-user-circle"></i>
-                    Sair
+                    Minha conta
                     <i class="fas fa-chevron-down"></i>
                 </button>
                 <div class="profile-menu-dropdown hidden" id="profileMenu" role="menu">
+                    <button class="profile-menu-item" id="changePasswordBtn" role="menuitem">
+                        <i class="fas fa-key"></i>
+                        Alterar senha
+                    </button>
                     <button class="profile-menu-item profile-menu-danger" id="logoutBtn" role="menuitem">
                         <i class="fas fa-sign-out-alt"></i>
                         Sair
@@ -123,6 +127,12 @@
                 <i class="fas fa-users"></i>
                 Usuários
             </h2>
+            <div class="manager-filters users-filters">
+                <div class="form-group">
+                    <label for="usersSearchInput"><i class="fas fa-search"></i> Buscar usuário</label>
+                    <input type="text" id="usersSearchInput" placeholder="Nome, classe, e-mail, matrícula ou tipo">
+                </div>
+            </div>
             <div class="form-actions">
                 <button class="btn-action" id="openUserCreateBtn">
                     <i class="fas fa-user-plus"></i>
@@ -144,6 +154,7 @@
                     <tbody id="usersTableBody"></tbody>
                 </table>
             </div>
+            <div class="pagination" id="usersPagination"></div>
         </section>
 
         <!-- Logs View (Admin only) -->
@@ -160,6 +171,10 @@
                 <button class="btn-action" id="logsFilterAccess">
                     <i class="fas fa-sign-in-alt"></i>
                     Acessos
+                </button>
+                <button class="btn-action" id="logsFilterReport">
+                    <i class="fas fa-file-pdf"></i>
+                    Emissões
                 </button>
                 <button class="btn-action" id="logsFilterUpdate">
                     <i class="fas fa-pen"></i>
@@ -226,20 +241,44 @@
                     <i class="fas fa-id-card"></i>
                     Identificação da Operação
                 </h2>
-                <div class="form-grid">
+                <div class="form-grid identification-grid">
+                    <div class="form-group compact-field">
+                        <label for="operationNumber"><i class="fas fa-hashtag"></i> Nº da Operação</label>
+                        <input type="text" id="operationNumber" class="locked-input" placeholder="0000/0000" readonly>
+                    </div>
                     <div class="form-group">
                         <label for="operationName" class="required-label"><i class="fas fa-heading"></i> Nome da Operação</label>
                         <input type="text" id="operationName" placeholder="Ex: Operação Segurança Integrada" class="required">
                     </div>
                     <div class="form-group">
+                        <label for="operationComplexity" class="required-label"><i class="fas fa-signal"></i> Complexidade</label>
+                        <select id="operationComplexity" class="required">
+                            <option value="">Selecione</option>
+                            <option value="Nivel 1 - Alta">Nivel 1 - Alta</option>
+                            <option value="Nivel 2 - Média">Nivel 2 - Média</option>
+                            <option value="Nivel 3 - Baixa">Nivel 3 - Baixa</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="eventType" class="required-label"><i class="fas fa-list"></i> Tipo Evento</label>
+                        <div class="input-with-action">
+                            <select id="eventType" class="required">
+                                <option value="">Selecione</option>
+                            </select>
+                            <button class="btn-action btn-inline btn-inline-small" id="addEventTypeBtn" type="button" aria-label="Adicionar tipo de evento">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group compact-field">
                         <label for="operationDate" class="required-label"><i class="fas fa-calendar-alt"></i> Data</label>
                         <input type="date" id="operationDate" class="required">
                     </div>
-                    <div class="form-group">
+                    <div class="form-group compact-field">
                         <label for="startTime" class="required-label"><i class="fas fa-clock"></i> Horário de Início</label>
                         <input type="time" id="startTime" class="required">
                     </div>
-                    <div class="form-group">
+                    <div class="form-group compact-field">
                         <label for="endTime" class="required-label"><i class="fas fa-clock"></i> Horário de Término</label>
                         <input type="time" id="endTime" class="required">
                     </div>
@@ -383,9 +422,9 @@
                     <table id="areaTable">
                         <thead>
                             <tr>
-                                <th>Área/Local</th>
-                                <th>Qtd. Agentes</th>
                                 <th>Posto</th>
+                                <th>Qtd. Agentes</th>
+                                <th>Área/Local</th>
                                 <th>Ações</th>
                             </tr>
                         </thead>
@@ -412,10 +451,15 @@
                     <i class="fas fa-exclamation-triangle"></i>
                     Registro de Ocorrências
                 </h2>
-                <div class="form-group">
-                    <label for="incidents"><i class="fas fa-clipboard-list"></i> Descrição das Ocorrências</label>
-                    <textarea id="incidents" placeholder="Descreva as ocorrências registradas durante a operação"></textarea>
+                <div id="incidentsContainer"></div>
+                <div class="flag-row" id="incidentsNoChangeRow">
+                    <input type="checkbox" id="incidentsNoChange">
+                    <label for="incidentsNoChange">Sem alteração.</label>
                 </div>
+                <button class="btn-add-row" id="addIncidentBtn">
+                    <i class="fas fa-plus-circle"></i>
+                    Adicionar Ocorrência
+                </button>
             </section>
 
             <!-- Service Changes Section -->
@@ -428,6 +472,11 @@
                 <!-- Service changes container -->
                 <div id="serviceChangesContainer">
                     <!-- Service change items will be added here -->
+                </div>
+
+                <div class="flag-row" id="serviceChangesNoChangeRow">
+                    <input type="checkbox" id="serviceChangesNoChange">
+                    <label for="serviceChangesNoChange">Sem alteração.</label>
                 </div>
 
                 <button class="btn-add-row" id="addServiceChangeBtn">
@@ -445,6 +494,18 @@
                 <div class="form-group">
                     <label for="summary" class="required-label"><i class="fas fa-edit"></i> Relato Final da Operação</label>
                     <textarea id="summary" class="required" placeholder="Faça um resumo geral da operação, incluindo resultados e observações finais"></textarea>
+                </div>
+                <div class="summary-actions">
+                    <button class="btn-action btn-export" id="insertSummaryTemplateBtn" type="button">
+                        <i class="fas fa-file-signature"></i>
+                        Inserir texto sugestão
+                    </button>
+                    <p class="form-helper warning hidden" id="summaryTemplateWarning">
+                        Para utilizar o texto sugestão, deixe o campo totalmente em branco.
+                    </p>
+                    <p class="form-helper info hidden" id="summaryTemplateInfo">
+                        Este texto é apenas um modelo orientativo. Revise e ajuste o conteúdo conforme a situação real da operação, incluindo informações específicas quando necessário. Utilize-o apenas como referência para elaboração do relato final.
+                    </p>
                 </div>
             </section>
 
@@ -470,6 +531,19 @@
             <div class="modal-buttons">
                 <button class="btn-small" id="confirmClear">Sim, Limpar Tudo</button>
                 <button class="btn-small btn-danger" id="cancelClear">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reset Password Modal -->
+    <div class="modal" id="resetPasswordModal">
+        <div class="modal-content">
+            <h3>Redefinir senha</h3>
+            <p id="resetPasswordMessage">Deseja enviar um e-mail de redefinição de senha?</p>
+            <p class="login-error" id="resetPasswordError" aria-live="polite"></p>
+            <div class="modal-buttons">
+                <button class="btn-small" id="confirmResetPassword">Enviar e-mail</button>
+                <button class="btn-small btn-danger" id="cancelResetPassword">Cancelar</button>
             </div>
         </div>
     </div>
@@ -503,6 +577,7 @@
                     <label for="profileType" class="required-label"><i class="fas fa-user-shield"></i> Tipo</label>
                     <select id="profileType" class="required">
                         <option value="usuario">Usuário</option>
+                        <option value="usuario_restrito">Usuário restrito</option>
                         <option value="administrador">Administrador</option>
                     </select>
                 </div>
@@ -542,6 +617,7 @@
                     <label for="userEditType" class="required-label"><i class="fas fa-user-shield"></i> Tipo</label>
                     <select id="userEditType" class="required">
                         <option value="usuario">Usuário</option>
+                        <option value="usuario_restrito">Usuário restrito</option>
                         <option value="administrador">Administrador</option>
                     </select>
                 </div>
@@ -590,6 +666,7 @@
                     <label for="userCreateType" class="required-label"><i class="fas fa-user-shield"></i> Tipo</label>
                     <select id="userCreateType" class="required" required>
                         <option value="usuario" selected>Usuário</option>
+                        <option value="usuario_restrito">Usuário restrito</option>
                         <option value="administrador">Administrador</option>
                     </select>
                 </div>
@@ -598,6 +675,52 @@
             <div class="modal-buttons">
                 <button class="btn-small" id="saveUserCreateBtn">Criar</button>
                 <button class="btn-small btn-danger" id="cancelUserCreateBtn">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div class="modal" id="changePasswordModal">
+        <div class="modal-content modal-form">
+            <h3>Alterar senha</h3>
+            <form id="changePasswordForm" class="form-grid">
+                <div class="form-group">
+                    <label for="currentPassword" class="required-label"><i class="fas fa-lock"></i> Senha atual</label>
+                    <input type="password" id="currentPassword" class="required" autocomplete="current-password">
+                </div>
+                <div class="form-group">
+                    <label for="newPassword" class="required-label"><i class="fas fa-key"></i> Nova senha</label>
+                    <input type="password" id="newPassword" class="required" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label for="confirmPassword" class="required-label"><i class="fas fa-key"></i> Confirmar nova senha</label>
+                    <input type="password" id="confirmPassword" class="required" autocomplete="new-password">
+                </div>
+            </form>
+            <p class="login-error" id="changePasswordError" aria-live="polite"></p>
+            <div class="modal-buttons">
+                <button class="btn-small" id="savePasswordBtn">Salvar</button>
+                <button class="btn-small btn-danger" id="cancelPasswordBtn">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Event Types Modal -->
+    <div class="modal" id="eventTypeModal">
+        <div class="modal-content modal-form">
+            <h3>Tipos de Evento</h3>
+            <p class="modal-helper">Gerencie os tipos de evento disponíveis para seleção.</p>
+            <div class="event-type-list" id="eventTypeList"></div>
+            <div class="event-type-add">
+                <input type="text" id="eventTypeInput" placeholder="NOVO TIPO" autocomplete="off">
+                <button class="btn-small" id="eventTypeAddConfirm" type="button">
+                    <i class="fas fa-plus"></i>
+                    Adicionar
+                </button>
+            </div>
+            <p class="login-error" id="eventTypeModalError" aria-live="polite"></p>
+            <div class="modal-buttons">
+                <button class="btn-small btn-danger" id="closeEventTypeModal">Fechar</button>
             </div>
         </div>
     </div>
