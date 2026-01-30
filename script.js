@@ -31,9 +31,11 @@ const loginEmail = document.getElementById('loginEmail');
 const loginPassword = document.getElementById('loginPassword');
 const loginError = document.getElementById('loginError');
 const logoutBtn = document.getElementById('logoutBtn');
+const adminMenuContainer = document.getElementById('adminMenuContainer');
+const adminMenuBtn = document.getElementById('adminMenuBtn');
+const adminMenu = document.getElementById('adminMenu');
 const profileMenuBtn = document.getElementById('profileMenuBtn');
 const profileMenu = document.getElementById('profileMenu');
-const editProfileBtn = document.getElementById('editProfileBtn');
 const currentOperationBtn = document.getElementById('currentOperationBtn');
 const newOperationBtn = document.getElementById('newOperationBtn');
 const viewManagerBtn = document.getElementById('viewManagerBtn');
@@ -54,13 +56,10 @@ const saveIndicator = document.getElementById('saveIndicator');
 const saveStatus = document.getElementById('saveStatus');
 const lastSaved = document.getElementById('lastSaved');
 const addAreaBtn = document.getElementById('addAreaBtn');
-const addAgentBtn = document.getElementById('addAgentBtn');
 const addVehicleBtn = document.getElementById('addVehicleBtn');
 const addServiceChangeBtn = document.getElementById('addServiceChangeBtn');
 const areaTableBody = document.getElementById('areaTableBody');
 const areaCardsContainer = document.getElementById('areaCardsContainer');
-const agentsTableBody = document.getElementById('agentsTableBody');
-const agentsCardsContainer = document.getElementById('agentsCardsContainer');
 const vehiclesTableBody = document.getElementById('vehiclesTableBody');
 const vehiclesCardsContainer = document.getElementById('vehiclesCardsContainer');
 const saveDbBtn = document.getElementById('saveDbBtn');
@@ -75,6 +74,11 @@ const logsDateFrom = document.getElementById('logsDateFrom');
 const logsDateTo = document.getElementById('logsDateTo');
 const logsLimit = document.getElementById('logsLimit');
 const logsClearBtn = document.getElementById('logsClearBtn');
+const logsFilterAll = document.getElementById('logsFilterAll');
+const logsFilterAccess = document.getElementById('logsFilterAccess');
+const logsFilterUpdate = document.getElementById('logsFilterUpdate');
+const logsFilterDelete = document.getElementById('logsFilterDelete');
+const openUserCreateBtn = document.getElementById('openUserCreateBtn');
 const profileSummaryClass = document.getElementById('profileSummaryClass');
 const profileSummaryWarName = document.getElementById('profileSummaryWarName');
 const profileSummaryRegistration = document.getElementById('profileSummaryRegistration');
@@ -96,12 +100,22 @@ const userEditType = document.getElementById('userEditType');
 const saveUserEditBtn = document.getElementById('saveUserEditBtn');
 const cancelUserEditBtn = document.getElementById('cancelUserEditBtn');
 const userEditError = document.getElementById('userEditError');
+const userCreateModal = document.getElementById('userCreateModal');
+const userCreateForm = document.getElementById('userCreateForm');
+const userCreateEmail = document.getElementById('userCreateEmail');
+const userCreatePassword = document.getElementById('userCreatePassword');
+const userCreateClass = document.getElementById('userCreateClass');
+const userCreateWarName = document.getElementById('userCreateWarName');
+const userCreateRegistration = document.getElementById('userCreateRegistration');
+const userCreateType = document.getElementById('userCreateType');
+const saveUserCreateBtn = document.getElementById('saveUserCreateBtn');
+const cancelUserCreateBtn = document.getElementById('cancelUserCreateBtn');
+const userCreateError = document.getElementById('userCreateError');
 
 // State variables
 let saveTimeout = null;
 let isSaving = false;
 let areaRows = [];
-let agentRows = [];
 let vehicleRows = [];
 let serviceChangeRows = [];
 let currentUserProfile = null;
@@ -113,6 +127,7 @@ let editingUserId = null;
 let logsCache = [];
 let isLoadingLogs = false;
 let logsCurrentLimit = 100;
+let logsActionFilter = 'all';
 
 const CLASSE_OPTIONS = [
     'S INSP 2ª CL',
@@ -150,7 +165,6 @@ function bootApp() {
 
     // Add initial rows if none loaded
     if (areaRows.length === 0) addAreaRow();
-    if (agentRows.length === 0) addAgentRow();
     if (vehicleRows.length === 0) addVehicleRow();
     if (serviceChangeRows.length === 0) addServiceChangeRow();
 
@@ -224,13 +238,16 @@ function initializeEventListeners() {
     
     // Add buttons
     addAreaBtn.addEventListener('click', addAreaRow);
-    addAgentBtn.addEventListener('click', addAgentRow);
     addVehicleBtn.addEventListener('click', addVehicleRow);
     addServiceChangeBtn.addEventListener('click', addServiceChangeRow);
     
     // Save to Firebase explicitly
     saveDbBtn.addEventListener('click', async () => {
         if (!auth || !auth.currentUser) return;
+        if (!validateVehicleDistribution()) {
+            saveStatus.textContent = 'Distribua os agentes por viatura antes de salvar.';
+            return;
+        }
         if (!validateRequiredFields()) {
             saveStatus.textContent = 'Preencha os campos obrigatórios antes de salvar.';
             return;
@@ -289,6 +306,7 @@ function initializeEventListeners() {
             if (isAdmin) {
                 setActiveAppView('users');
             }
+            closeAdminMenu();
         });
     }
     if (viewLogsBtn) {
@@ -297,6 +315,7 @@ function initializeEventListeners() {
                 setActiveAppView('logs');
                 loadLogsList(true);
             }
+            closeAdminMenu();
         });
     }
 
@@ -322,6 +341,31 @@ function initializeEventListeners() {
             if (logsLimit) logsLimit.value = '100';
             logsCurrentLimit = 100;
             loadLogsList(true);
+        });
+    }
+
+    if (logsFilterAll) {
+        logsFilterAll.addEventListener('click', () => {
+            logsActionFilter = 'all';
+            applyLogsFilter();
+        });
+    }
+    if (logsFilterAccess) {
+        logsFilterAccess.addEventListener('click', () => {
+            logsActionFilter = 'access';
+            applyLogsFilter();
+        });
+    }
+    if (logsFilterUpdate) {
+        logsFilterUpdate.addEventListener('click', () => {
+            logsActionFilter = 'update';
+            applyLogsFilter();
+        });
+    }
+    if (logsFilterDelete) {
+        logsFilterDelete.addEventListener('click', () => {
+            logsActionFilter = 'delete';
+            applyLogsFilter();
         });
     }
 
@@ -356,15 +400,20 @@ function initializeEventListeners() {
         });
     }
 
-    if (editProfileBtn) {
-        editProfileBtn.addEventListener('click', (event) => {
-            event.preventDefault();
-            closeProfileMenu();
-            openProfileModal();
+    if (adminMenuBtn && adminMenu) {
+        adminMenuBtn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            const isHidden = adminMenu.classList.contains('hidden');
+            adminMenu.classList.toggle('hidden', !isHidden);
+            adminMenuBtn.setAttribute('aria-expanded', String(isHidden));
+        });
+        adminMenu.addEventListener('click', (event) => {
+            event.stopPropagation();
         });
     }
 
     document.addEventListener('click', () => {
+        closeAdminMenu();
         closeProfileMenu();
     });
 
@@ -388,6 +437,29 @@ function initializeEventListeners() {
             closeUserEditModal();
         });
     }
+
+    if (openUserCreateBtn) {
+        openUserCreateBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            if (isAdmin) {
+                openUserCreateModal();
+            }
+        });
+    }
+
+    if (saveUserCreateBtn) {
+        saveUserCreateBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            createNewUser();
+        });
+    }
+
+    if (cancelUserCreateBtn) {
+        cancelUserCreateBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            closeUserCreateModal();
+        });
+    }
 }
 
 function validateRequiredFields() {
@@ -397,6 +469,7 @@ function validateRequiredFields() {
         'startTime',
         'endTime',
         'location',
+        'neighborhood',
         'coordinatorName',
         'registration',
         'position',
@@ -419,6 +492,38 @@ function validateRequiredFields() {
 
     if (firstInvalid) {
         firstInvalid.focus();
+        return false;
+    }
+
+    return true;
+}
+
+function validateVehicleDistribution() {
+    const requiredVehicles = vehicleRows
+        .map(row => {
+            const prefix = (row.prefix || '').trim();
+            const post = (row.post || '').trim();
+            return [prefix, post].filter(Boolean).join(' - ');
+        })
+        .filter(label => label);
+
+    if (!requiredVehicles.length) return true;
+
+    const areaMap = new Map();
+    areaRows.forEach(row => {
+        const post = (row.post || '').trim();
+        const agents = parseInt(row.agents, 10) || 0;
+        if (!post) return;
+        areaMap.set(post, (areaMap.get(post) || 0) + agents);
+    });
+
+    const missing = requiredVehicles.filter(label => {
+        const totalAgents = areaMap.get(label) || 0;
+        return totalAgents <= 0;
+    });
+
+    if (missing.length > 0) {
+        alert(`Distribua os agentes para todas as viaturas cadastradas: ${missing.join(', ')}`);
         return false;
     }
 
@@ -507,14 +612,28 @@ function closeProfileMenu() {
     profileMenuBtn.setAttribute('aria-expanded', 'false');
 }
 
+function closeAdminMenu() {
+    if (!adminMenu || !adminMenuBtn) return;
+    adminMenu.classList.add('hidden');
+    adminMenuBtn.setAttribute('aria-expanded', 'false');
+}
+
 function resetUserProfileState() {
     currentUserProfile = null;
     isAdmin = false;
     usersCache = [];
     editingUserId = null;
     logsCache = [];
+    closeAdminMenu();
     closeProfileMenu();
+    closeUserCreateModal();
     updateProfileSummary(null);
+    if (adminMenuContainer) {
+        adminMenuContainer.classList.add('hidden');
+    }
+    if (openUserCreateBtn) {
+        openUserCreateBtn.classList.add('hidden');
+    }
     if (viewUsersBtn) {
         viewUsersBtn.classList.add('hidden');
         viewUsersBtn.classList.remove('active');
@@ -535,15 +654,15 @@ function resetUserProfileState() {
     if (userEditModal) {
         userEditModal.style.display = 'none';
     }
+    if (userCreateModal) {
+        userCreateModal.style.display = 'none';
+    }
 }
 
 async function initializeUserProfileFlow(user) {
     if (!db || !user) return;
     await ensureUserProfile(user);
     await registerAccessLog(user);
-    if (!currentUserProfile || !isProfileComplete(currentUserProfile)) {
-        openProfileModal();
-    }
 }
 
 function getUsersCollection() {
@@ -559,6 +678,12 @@ function isProfileComplete(profile) {
 }
 
 function updateAdminVisibility() {
+    if (adminMenuContainer) {
+        adminMenuContainer.classList.toggle('hidden', !isAdmin);
+    }
+    if (openUserCreateBtn) {
+        openUserCreateBtn.classList.toggle('hidden', !isAdmin);
+    }
     if (viewUsersBtn) {
         viewUsersBtn.classList.toggle('hidden', !isAdmin);
     }
@@ -615,8 +740,25 @@ function closeUserEditModal() {
     userEditModal.style.display = 'none';
 }
 
+function openUserCreateModal() {
+    if (!userCreateModal || !isAdmin) return;
+    if (userCreateError) userCreateError.textContent = '';
+    if (userCreateForm) userCreateForm.reset();
+    if (userCreateType) userCreateType.value = 'usuario';
+    userCreateModal.style.display = 'flex';
+}
+
+function closeUserCreateModal() {
+    if (!userCreateModal) return;
+    userCreateModal.style.display = 'none';
+}
+
 function validateProfileFields({ classe, nomeGuerra, matricula }) {
     return Boolean(classe && nomeGuerra && matricula);
+}
+
+function validateUserCreateFields({ email, password, classe, nomeGuerra, matricula }) {
+    return Boolean(email && password && classe && nomeGuerra && matricula);
 }
 
 async function ensureUserProfile(user) {
@@ -660,10 +802,6 @@ async function ensureUserProfile(user) {
         isAdmin = currentUserProfile.tipo === 'administrador';
         updateAdminVisibility();
         updateProfileSummary(currentUserProfile);
-
-        if (!isProfileComplete(currentUserProfile)) {
-            openProfileModal();
-        }
     } catch (error) {
         console.error('Erro ao carregar perfil do usuário:', error);
         if (!currentUserProfile) {
@@ -676,7 +814,6 @@ async function ensureUserProfile(user) {
                 tipo: 'usuario'
             };
         }
-        openProfileModal();
     }
 }
 
@@ -716,6 +853,54 @@ async function saveCurrentUserProfile() {
     } catch (error) {
         console.error('Erro ao salvar perfil do usuário:', error);
         profileError.textContent = 'Falha ao salvar o perfil. Tente novamente.';
+    }
+}
+
+async function createNewUser() {
+    if (!auth || !db || !isAdmin) return;
+    if (!userCreateEmail || !userCreatePassword || !userCreateClass || !userCreateWarName || !userCreateRegistration || !userCreateType) return;
+
+    const email = userCreateEmail.value.trim();
+    const password = userCreatePassword.value.trim();
+    const classe = userCreateClass.value.trim();
+    const nomeGuerra = userCreateWarName.value.trim();
+    const matricula = userCreateRegistration.value.trim();
+    const tipo = userCreateType.value || 'usuario';
+
+    if (!validateUserCreateFields({ email, password, classe, nomeGuerra, matricula })) {
+        if (userCreateError) userCreateError.textContent = 'Preencha todos os campos obrigatórios.';
+        return;
+    }
+
+    try {
+        const existingSecondary = firebase.apps.find(app => app.name === 'adminCreate');
+        const secondaryApp = existingSecondary || firebase.initializeApp(firebaseConfig, 'adminCreate');
+        const secondaryAuth = secondaryApp.auth();
+
+        const userCredential = await secondaryAuth.createUserWithEmailAndPassword(email, password);
+        const createdUser = userCredential.user;
+
+        const payload = {
+            classe,
+            nomeGuerra,
+            matricula,
+            tipo,
+            email,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        await getUsersCollection().doc(createdUser.uid).set(payload, { merge: true });
+        await secondaryAuth.signOut();
+
+        closeUserCreateModal();
+        if (userCreateForm) userCreateForm.reset();
+        loadUsersList(true);
+    } catch (error) {
+        console.error('Erro ao criar usuário:', error);
+        if (userCreateError) {
+            userCreateError.textContent = 'Falha ao criar usuário. Verifique os dados e tente novamente.';
+        }
     }
 }
 
@@ -765,6 +950,11 @@ function renderUsersTable(users) {
                 <button class="btn-small" data-user-id="${user.id}">
                     <i class="fas fa-pen"></i> Editar
                 </button>
+                ${isAdmin ? `
+                <button class="btn-small btn-danger" data-user-delete-id="${user.id}">
+                    <i class="fas fa-trash"></i> Excluir
+                </button>
+                ` : ''}
             </td>
         `;
         usersTableBody.appendChild(tr);
@@ -777,6 +967,37 @@ function renderUsersTable(users) {
             const user = usersCache.find(item => item.id === userId);
             if (user) {
                 openUserEditModal(user);
+            }
+        });
+    });
+
+    usersTableBody.querySelectorAll('button[data-user-delete-id]').forEach(button => {
+        button.addEventListener('click', async () => {
+            if (!isAdmin) return;
+            const userId = button.getAttribute('data-user-delete-id');
+            const user = usersCache.find(item => item.id === userId);
+            if (!user) return;
+
+            const justification = prompt('Informe a justificativa para excluir este usuário:');
+            if (!justification || !justification.trim()) return;
+
+            try {
+                const targetName = user.nomeGuerra || user.email || user.id;
+                const fullJustification = `${targetName}: ${justification.trim()}`;
+                await getUsersCollection().doc(userId).delete();
+                usersCache = usersCache.filter(item => item.id !== userId);
+                await registerAdminActionLog({
+                    action: 'delete-user',
+                    justification: fullJustification,
+                    operationId: null,
+                    operationName: null,
+                    targetUserId: userId,
+                    targetUserEmail: user.email || null
+                });
+                renderUsersTable(usersCache);
+            } catch (error) {
+                console.error('Erro ao excluir usuário:', error);
+                alert('Falha ao excluir o usuário.');
             }
         });
     });
@@ -878,16 +1099,11 @@ function expandAllTextareas() {
 }
 
 function isEditAllowed() {
-    const dateValue = document.getElementById('operationDate').value;
-    if (!dateValue) return true;
-
-    const operationDate = new Date(dateValue + 'T00:00:00');
-    if (Number.isNaN(operationDate.getTime())) return true;
-
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const cutoff = new Date(operationDate.getTime() + 3 * 24 * 60 * 60 * 1000);
-    return today.getTime() <= cutoff.getTime();
+    if (!auth || !auth.currentUser) return false;
+    if (!currentOperationId) return true;
+    const ownerId = currentOperationMeta?.ownerId || null;
+    if (!ownerId) return false;
+    return auth.currentUser.uid === ownerId;
 }
 
 function enforceEditWindow() {
@@ -904,7 +1120,6 @@ function enforceEditWindow() {
     });
 
     addAreaBtn.disabled = !allowed;
-    addAgentBtn.disabled = !allowed;
     addVehicleBtn.disabled = !allowed;
     addServiceChangeBtn.disabled = !allowed;
     clearBtn.disabled = !allowed;
@@ -930,8 +1145,31 @@ function triggerSave() {
 
 // Update total agents count based on actual agents added
 function updateTotalAgentsCount() {
-    const total = agentRows.length;
+    const total = areaRows.reduce((sum, row) => sum + (parseInt(row.agents, 10) || 0), 0);
     document.getElementById('totalAgents').textContent = total;
+}
+
+function getPostOptionsList() {
+    const options = new Set();
+    vehicleRows.forEach(row => {
+        const prefix = (row.prefix || '').trim();
+        const post = (row.post || '').trim();
+        const label = [prefix, post].filter(Boolean).join(' - ');
+        if (label) {
+            options.add(label);
+        }
+    });
+    options.add('Agentes a Pé');
+    return Array.from(options).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+}
+
+function buildPostOptions(selectedValue) {
+    const options = ['<option value="">Selecione</option>'];
+    getPostOptionsList().forEach(option => {
+        const isSelected = option === selectedValue ? ' selected' : '';
+        options.push(`<option value="${option}"${isSelected}>${option}</option>`);
+    });
+    return options.join('');
 }
 
 // AREA DISTRIBUTION FUNCTIONS
@@ -941,12 +1179,13 @@ function addAreaRow() {
         id: rowId,
         area: '',
         agents: '',
-        vehicle: ''
+        post: ''
     };
     
     areaRows.push(newRow);
     updateAreaTable();
     updateAreaCards();
+    updateTotalAgentsCount();
     triggerSave();
 }
 
@@ -959,6 +1198,7 @@ function removeAreaRow(rowId) {
     areaRows = areaRows.filter(row => row.id !== rowId);
     updateAreaTable();
     updateAreaCards();
+    updateTotalAgentsCount();
     triggerSave();
 }
 
@@ -970,24 +1210,36 @@ function updateAreaTable() {
         tr.innerHTML = `
             <td><input type="text" class="area-input" data-id="${row.id}" data-field="area" value="${row.area}" placeholder="Ex: Centro Comercial"></td>
             <td><input type="number" class="area-input" data-id="${row.id}" data-field="agents" value="${row.agents}" min="0" placeholder="0"></td>
-            <td><input type="text" class="area-input" data-id="${row.id}" data-field="vehicle" value="${row.vehicle}" placeholder="Ex: VTR-001"></td>
+            <td>
+                <select class="area-input" data-id="${row.id}" data-field="post">
+                    ${buildPostOptions(row.post || row.vehicle || '')}
+                </select>
+            </td>
             <td><button class="btn-small btn-danger remove-area-row" data-id="${row.id}"><i class="fas fa-trash-alt"></i> Remover</button></td>
         `;
         areaTableBody.appendChild(tr);
     });
     
     document.querySelectorAll('.area-input').forEach(input => {
-        input.addEventListener('input', (e) => {
+        const handler = (e) => {
             const rowId = parseInt(e.target.getAttribute('data-id'));
             const field = e.target.getAttribute('data-field');
             const value = e.target.value;
-            
+
             const rowIndex = areaRows.findIndex(row => row.id === rowId);
             if (rowIndex !== -1) {
                 areaRows[rowIndex][field] = value;
+                if (field === 'agents') {
+                    updateTotalAgentsCount();
+                }
                 triggerSave();
             }
-        });
+        };
+        if (input.tagName === 'SELECT') {
+            input.addEventListener('change', handler);
+        } else {
+            input.addEventListener('input', handler);
+        }
     });
     
     document.querySelectorAll('.remove-area-row').forEach(button => {
@@ -1014,8 +1266,12 @@ function updateAreaCards() {
                 <span><input type="number" class="card-input" data-id="${row.id}" data-field="agents" value="${row.agents}" min="0" placeholder="0"></span>
             </div>
             <div class="card-row">
-                <span class="card-label">Viatura:</span>
-                <span><input type="text" class="card-input" data-id="${row.id}" data-field="vehicle" value="${row.vehicle}" placeholder="Ex: VTR-001"></span>
+                <span class="card-label">Posto:</span>
+                <span>
+                    <select class="card-input" data-id="${row.id}" data-field="post">
+                        ${buildPostOptions(row.post || row.vehicle || '')}
+                    </select>
+                </span>
             </div>
             <div class="card-actions">
                 <button class="btn-small btn-danger remove-area-row" data-id="${row.id}"><i class="fas fa-trash-alt"></i> Remover</button>
@@ -1025,143 +1281,31 @@ function updateAreaCards() {
     });
     
     document.querySelectorAll('.cards-container .card-input').forEach(input => {
-        input.addEventListener('input', (e) => {
+        const handler = (e) => {
             const rowId = parseInt(e.target.getAttribute('data-id'));
             const field = e.target.getAttribute('data-field');
             const value = e.target.value;
-            
+
             const rowIndex = areaRows.findIndex(row => row.id === rowId);
             if (rowIndex !== -1) {
                 areaRows[rowIndex][field] = value;
+                if (field === 'agents') {
+                    updateTotalAgentsCount();
+                }
                 triggerSave();
             }
-        });
+        };
+        if (input.tagName === 'SELECT') {
+            input.addEventListener('change', handler);
+        } else {
+            input.addEventListener('input', handler);
+        }
     });
     
     document.querySelectorAll('.cards-container .remove-area-row').forEach(button => {
         button.addEventListener('click', (e) => {
             const rowId = parseInt(e.target.getAttribute('data-id'));
             removeAreaRow(rowId);
-        });
-    });
-}
-
-// AGENTS FUNCTIONS
-function addAgentRow() {
-    const rowId = Date.now();
-    const newRow = {
-        id: rowId,
-        classe: '',
-        warName: ''
-    };
-    
-    agentRows.push(newRow);
-    updateAgentsTable();
-    updateAgentsCards();
-    updateTotalAgentsCount();
-    triggerSave();
-}
-
-function removeAgentRow(rowId) {
-    if (agentRows.length <= 1) {
-        alert('Deve haver pelo menos um agente cadastrado.');
-        return;
-    }
-    
-    agentRows = agentRows.filter(row => row.id !== rowId);
-    updateAgentsTable();
-    updateAgentsCards();
-    updateTotalAgentsCount();
-    triggerSave();
-}
-
-function updateAgentsTable() {
-    agentsTableBody.innerHTML = '';
-    
-    agentRows.forEach(row => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>
-                <select class="agent-input" data-id="${row.id}" data-field="classe">
-                    ${buildClasseOptions(row.classe)}
-                </select>
-            </td>
-            <td><input type="text" class="agent-input" data-id="${row.id}" data-field="warName" value="${row.warName}" placeholder="Nome de guerra"></td>
-            <td><button class="btn-small btn-danger remove-agent-row" data-id="${row.id}"><i class="fas fa-trash-alt"></i> Remover</button></td>
-        `;
-        agentsTableBody.appendChild(tr);
-    });
-    
-    document.querySelectorAll('.agent-input').forEach(input => {
-        const handler = (e) => {
-            const rowId = parseInt(e.target.getAttribute('data-id'));
-            const field = e.target.getAttribute('data-field');
-            const value = e.target.value;
-            
-            const rowIndex = agentRows.findIndex(row => row.id === rowId);
-            if (rowIndex !== -1) {
-                agentRows[rowIndex][field] = value;
-                triggerSave();
-            }
-        };
-        input.addEventListener('input', handler);
-        input.addEventListener('change', handler);
-    });
-    
-    document.querySelectorAll('.remove-agent-row').forEach(button => {
-        button.addEventListener('click', (e) => {
-            const rowId = parseInt(e.target.getAttribute('data-id'));
-            removeAgentRow(rowId);
-        });
-    });
-}
-
-function updateAgentsCards() {
-    agentsCardsContainer.innerHTML = '';
-    
-    agentRows.forEach(row => {
-        const card = document.createElement('div');
-        card.className = 'agent-card';
-        card.innerHTML = `
-            <div class="card-row">
-                <span class="card-label">Classe:</span>
-                <span>
-                    <select class="card-input" data-id="${row.id}" data-field="classe">
-                        ${buildClasseOptions(row.classe)}
-                    </select>
-                </span>
-            </div>
-            <div class="card-row">
-                <span class="card-label">Nome de Guerra:</span>
-                <span><input type="text" class="card-input" data-id="${row.id}" data-field="warName" value="${row.warName}" placeholder="Nome de guerra"></span>
-            </div>
-            <div class="card-actions">
-                <button class="btn-small btn-danger remove-agent-row" data-id="${row.id}"><i class="fas fa-trash-alt"></i> Remover</button>
-            </div>
-        `;
-        agentsCardsContainer.appendChild(card);
-    });
-    
-    document.querySelectorAll('#agentsCardsContainer .card-input').forEach(input => {
-        const handler = (e) => {
-            const rowId = parseInt(e.target.getAttribute('data-id'));
-            const field = e.target.getAttribute('data-field');
-            const value = e.target.value;
-            
-            const rowIndex = agentRows.findIndex(row => row.id === rowId);
-            if (rowIndex !== -1) {
-                agentRows[rowIndex][field] = value;
-                triggerSave();
-            }
-        };
-        input.addEventListener('input', handler);
-        input.addEventListener('change', handler);
-    });
-    
-    document.querySelectorAll('#agentsCardsContainer .remove-agent-row').forEach(button => {
-        button.addEventListener('click', (e) => {
-            const rowId = parseInt(e.target.getAttribute('data-id'));
-            removeAgentRow(rowId);
         });
     });
 }
@@ -1208,6 +1352,7 @@ function updateVehiclesTable() {
                     <option value="VTR Convencional">VTR Convencional</option>
                     <option value="VTR Pickup">VTR Pickup</option>
                     <option value="Motocicleta">Motocicleta</option>
+                    <option value="Bicicleta">Bicicleta</option>
                     <option value="Ônibus">Ônibus</option>
                     <option value="Outra">Outra</option>
                 </select>
@@ -1255,6 +1400,9 @@ function updateVehiclesTable() {
             removeVehicleRow(rowId);
         });
     });
+
+    updateAreaTable();
+    updateAreaCards();
 }
 
 function updateVehiclesCards() {
@@ -1330,6 +1478,9 @@ function updateVehiclesCards() {
             removeVehicleRow(rowId);
         });
     });
+
+    updateAreaTable();
+    updateAreaCards();
 }
 
 // SERVICE CHANGES FUNCTIONS
@@ -1420,6 +1571,7 @@ function getFormData() {
         startTime: document.getElementById('startTime').value,
         endTime: document.getElementById('endTime').value,
         location: document.getElementById('location').value,
+        neighborhood: document.getElementById('neighborhood').value,
         coordinatorName: document.getElementById('coordinatorName').value,
         registration: document.getElementById('registration').value,
         position: document.getElementById('position').value,
@@ -1427,7 +1579,6 @@ function getFormData() {
         incidents: document.getElementById('incidents').value,
         summary: document.getElementById('summary').value,
         areaRows: areaRows,
-        agentRows: agentRows,
         vehicleRows: vehicleRows,
         serviceChangeRows: serviceChangeRows,
         lastSaved: new Date().toISOString()
@@ -1440,6 +1591,7 @@ function applyFormData(formData) {
     document.getElementById('startTime').value = formData.startTime || '';
     document.getElementById('endTime').value = formData.endTime || '';
     document.getElementById('location').value = formData.location || '';
+    document.getElementById('neighborhood').value = formData.neighborhood || '';
     document.getElementById('coordinatorName').value = formData.coordinatorName || '';
     document.getElementById('registration').value = formData.registration || '';
     document.getElementById('position').value = formData.position || '';
@@ -1447,6 +1599,7 @@ function applyFormData(formData) {
     document.getElementById('incidents').value = formData.incidents || '';
     document.getElementById('summary').value = formData.summary || '';
     currentOperationMeta = {
+        ownerId: formData.ownerId || null,
         createdBy: formData.createdBy || null,
         updatedBy: formData.updatedBy || null,
         createdAt: formData.createdAt || null,
@@ -1454,15 +1607,12 @@ function applyFormData(formData) {
     };
 
     if (formData.areaRows && formData.areaRows.length > 0) {
-        areaRows = formData.areaRows;
+        areaRows = formData.areaRows.map(row => ({
+            ...row,
+            post: row.post || row.vehicle || ''
+        }));
         updateAreaTable();
         updateAreaCards();
-    }
-
-    if (formData.agentRows && formData.agentRows.length > 0) {
-        agentRows = formData.agentRows;
-        updateAgentsTable();
-        updateAgentsCards();
         updateTotalAgentsCount();
     }
 
@@ -1479,6 +1629,8 @@ function applyFormData(formData) {
         }));
         updateServiceChangesContainer();
     }
+
+    updateTotalAgentsCount();
 
     requestAnimationFrame(() => {
         requestAnimationFrame(expandAllTextareas);
@@ -1530,6 +1682,11 @@ async function saveOperationToFirebase(formData) {
         const operationsRef = db.collection('operations');
         let docRef = null;
         const user = auth.currentUser;
+        if (currentOperationId && currentOperationMeta?.ownerId !== user.uid) {
+            saveStatus.textContent = 'Você não tem permissão para editar esta operação.';
+            return null;
+        }
+        let previousData = null;
         const userInfo = {
             uid: user.uid,
             nomeGuerra: currentUserProfile?.nomeGuerra || user.displayName || null,
@@ -1545,6 +1702,8 @@ async function saveOperationToFirebase(formData) {
 
         if (currentOperationId) {
             docRef = operationsRef.doc(currentOperationId);
+            const previousSnap = await docRef.get();
+            previousData = previousSnap.exists ? previousSnap.data() : null;
         } else {
             docRef = operationsRef.doc();
             currentOperationId = docRef.id;
@@ -1553,6 +1712,16 @@ async function saveOperationToFirebase(formData) {
         }
 
         await docRef.set(payload, { merge: true });
+        if (previousData) {
+            const changedFields = getChangedOperationFields(previousData, payload);
+            if (changedFields.length > 0) {
+                await registerOperationEditLog({
+                    operationId: docRef.id,
+                    operationName: payload.operationName || previousData.operationName || null,
+                    changedFields
+                });
+            }
+        }
         saveStatus.textContent = 'Salvo!';
         return docRef.id;
     } catch (error) {
@@ -1597,7 +1766,7 @@ function applyOperationsFilter() {
 
     const filtered = operationsCache.filter(operation => {
         if (forcedOperationIdFilter && operation.id !== forcedOperationIdFilter) return false;
-        const searchText = `${operation.operationName || ''} ${operation.coordinatorName || ''} ${operation.location || ''} ${operation.registration || ''}`.toLowerCase();
+        const searchText = `${operation.operationName || ''} ${operation.coordinatorName || ''} ${operation.location || ''} ${operation.neighborhood || ''} ${operation.registration || ''}`.toLowerCase();
         if (textValue && !searchText.includes(textValue)) return false;
 
         if (dateFrom || dateTo) {
@@ -1633,12 +1802,16 @@ function renderOperationsList(operations) {
         const card = document.createElement('div');
         card.className = 'operation-card';
         card.innerHTML = `
-            <div class="operation-title">${operation.operationName || 'Operação sem nome'}</div>
+            <div class="operation-header">
+                <div class="operation-title">${operation.operationName || 'Operação sem nome'}</div>
+                <div class="operation-highlight">
+                    <span><strong>Data:</strong> ${formatDate(operation.operationDate)}</span>
+                    <span><strong>Local:</strong> ${(operation.location || 'Não informado')}${operation.neighborhood ? ` - ${operation.neighborhood}` : ''}</span>
+                    <span><strong>Efetivo:</strong> ${operation.totalAgents || '0'}</span>
+                </div>
+            </div>
             <div class="operation-meta">
-                <div><strong>Data:</strong> ${formatDate(operation.operationDate)}</div>
-                <div><strong>Local:</strong> ${operation.location || 'Não informado'}</div>
                 <div><strong>Coordenador:</strong> ${operation.coordinatorName || 'Não informado'}</div>
-                <div><strong>Matrícula:</strong> ${operation.registration || 'Não informado'}</div>
                 <div><strong>Registrado por:</strong> ${(operation.createdBy?.nomeGuerra || 'Não informado')}</div>
                 <div><strong>Criado em:</strong> ${formatDateTime(operation.createdAt)}</div>
                 ${showUpdateInfo ? `
@@ -1653,6 +1826,11 @@ function renderOperationsList(operations) {
                 <button class="btn-small" data-action="pdf" data-id="${operation.id}">
                     <i class="fas fa-file-pdf"></i> Gerar PDF
                 </button>
+                ${isAdmin ? `
+                <button class="btn-small btn-danger" data-action="delete" data-id="${operation.id}">
+                    <i class="fas fa-trash"></i> Excluir
+                </button>
+                ` : ''}
             </div>
         `;
 
@@ -1673,6 +1851,36 @@ function renderOperationsList(operations) {
             if (operation) {
                 applyFormData(operation);
                 await exportToPDF();
+            }
+        });
+    });
+
+    operationsList.querySelectorAll('button[data-action="delete"]').forEach(button => {
+        button.addEventListener('click', async () => {
+            if (!isAdmin) return;
+            const id = button.getAttribute('data-id');
+            const operation = operationsCache.find(item => item.id === id);
+            if (!operation) return;
+
+            const justification = prompt('Informe a justificativa para excluir este registro:');
+            if (!justification || !justification.trim()) return;
+
+            try {
+                await db.collection('operations').doc(id).delete();
+                operationsCache = operationsCache.filter(item => item.id !== id);
+                if (forcedOperationIdFilter === id) {
+                    forcedOperationIdFilter = null;
+                }
+                await registerAdminActionLog({
+                    action: 'delete-operation',
+                    justification: justification.trim(),
+                    operationId: id,
+                    operationName: operation.operationName || null
+                });
+                applyOperationsFilter();
+            } catch (error) {
+                console.error('Erro ao excluir operação:', error);
+                alert('Falha ao excluir a operação.');
             }
         });
     });
@@ -1725,7 +1933,7 @@ async function loadOperationById(id) {
         const docSnap = await docRef.get();
         if (docSnap.exists) {
             const data = docSnap.data();
-            if (data.ownerId && auth.currentUser && data.ownerId !== auth.currentUser.uid && !isAdmin) {
+            if (data.ownerId && auth.currentUser && data.ownerId !== auth.currentUser.uid) {
                 saveStatus.textContent = 'Você não tem permissão para editar esta operação.';
                 alert('Você não tem permissão para editar esta operação.');
                 return;
@@ -1781,24 +1989,18 @@ function clearForm() {
         id: Date.now(),
         area: '',
         agents: '',
-        vehicle: ''
-    }];
-    
-    agentRows = [{
-        id: Date.now() + 1,
-        classe: '',
-        warName: ''
+        post: ''
     }];
     
     vehicleRows = [{
-        id: Date.now() + 2,
+        id: Date.now() + 1,
         prefix: '',
         post: '',
         type: ''
     }];
     
     serviceChangeRows = [{
-        id: Date.now() + 3,
+        id: Date.now() + 2,
         description: '',
         index: 1
     }];
@@ -1806,8 +2008,7 @@ function clearForm() {
     // Update tables and cards
     updateAreaTable();
     updateAreaCards();
-    updateAgentsTable();
-    updateAgentsCards();
+    updateTotalAgentsCount();
     updateVehiclesTable();
     updateVehiclesCards();
     updateServiceChangesContainer();
@@ -1951,28 +2152,33 @@ async function exportToPDF() {
     doc.setFillColor(30, 58, 95);
     doc.rect(0, 0, pageWidth, 55, 'F');
 
+    let logoBottomY = 6;
     if (logoImage) {
-        const logoSize = 16;
-        const logoX = (pageWidth - logoSize) / 2;
+        const logoMaxWidth = 22;
+        const logoMaxHeight = 22;
+        const ratio = logoImage.naturalWidth / logoImage.naturalHeight;
+        let logoWidth = logoMaxWidth;
+        let logoHeight = logoWidth / ratio;
+        if (logoHeight > logoMaxHeight) {
+            logoHeight = logoMaxHeight;
+            logoWidth = logoHeight * ratio;
+        }
+        const logoX = (pageWidth - logoWidth) / 2;
         const logoY = 6;
-        doc.addImage(logoImage, 'JPEG', logoX, logoY, logoSize, logoSize);
+        logoBottomY = logoY + logoHeight;
+        doc.addImage(logoImage, 'JPEG', logoX, logoY, logoWidth, logoHeight);
     }
     
     // Title in white
     setTextColor(255, 255, 255);
+    const titleY = Math.max(logoBottomY + 10, 30);
+    const subtitleY = titleY + 10;
     setFontSize(22);
     setFontStyle('bold');
-    doc.text('POLÍCIA MUNICIPAL DE ARACAJU', pageWidth / 2, 30, { align: 'center' });
+    doc.text('POLÍCIA MUNICIPAL DE ARACAJU', pageWidth / 2, titleY, { align: 'center' });
     
     setFontSize(18);
-    doc.text('RELATÓRIO DE OPERAÇÃO', pageWidth / 2, 40, { align: 'center' });
-    
-    // Add generation date
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('pt-BR');
-    const timeStr = now.toLocaleTimeString('pt-BR');
-    setFontSize(10);
-    doc.text(`Gerado em: ${dateStr} às ${timeStr}`, pageWidth - margin, 49, { align: 'right' });
+    doc.text('RELATÓRIO DE OPERAÇÃO', pageWidth / 2, subtitleY, { align: 'center' });
     
     // Add decorative line
     doc.setDrawColor(201, 162, 39);
@@ -2130,11 +2336,12 @@ async function exportToPDF() {
     const startTime = document.getElementById('startTime').value || 'Não informado';
     const endTime = document.getElementById('endTime').value || 'Não informado';
     const location = document.getElementById('location').value || 'Não informado';
+    const neighborhood = document.getElementById('neighborhood').value || 'Não informado';
     
     const identificationContent = `Operação: ${operationName}
 Data: ${formatDate(operationDate)}
 Período: ${startTime} às ${endTime}
-Local: ${location}`;
+Local: ${location} - ${neighborhood}`;
     
     addSection('1. IDENTIFICAÇÃO DA OPERAÇÃO', identificationContent);
      // Adicione espaço extra aqui:
@@ -2153,31 +2360,9 @@ Cargo/Função: ${position}`;
  // Adicione espaço extra aqui:
     yPos += 2;
     
-    // 3. EFETIVO EMPREGADO - Table
+    // 3. VIATURAS (VTRs) UTILIZADAS - Table
     checkPageBreak(15);
-    addSection('3. EFETIVO EMPREGADO', '');
-
-     // Adicione espaço extra aqui:
-    yPos += 2;
-    
-    if (agentRows.length > 0) {
-        const agentHeaders = ['CLASSE', 'NOME DE GUERRA'];
-        const agentData = agentRows.map(row => [
-            row.classe || '-',
-            row.warName || '-'
-        ]);
-        
-        const agentColWidths = [50, 100];
-        createTable(agentHeaders, agentData, agentColWidths, true, `TOTAL DE AGENTES: ${agentRows.length}`);
-    } else {
-        setTextColor(100, 100, 100);
-        doc.text('Nenhum agente cadastrado.', margin, yPos);
-        yPos += 8;
-    }
-    
-    // 4. VIATURAS (VTRs) UTILIZADAS - Table
-    checkPageBreak(15);
-    addSection('4. VIATURAS (VTRs) UTILIZADAS', '');
+    addSection('3. VIATURAS (VTRs) UTILIZADAS', '');
 
      // Adicione espaço extra aqui:
     yPos += 2;
@@ -2198,19 +2383,19 @@ Cargo/Função: ${position}`;
         yPos += 8;
     }
     
-    // 5. DISTRIBUIÇÃO DO EFETIVO POR ÁREA - Table
+    // 4. DISTRIBUIÇÃO DO EFETIVO POR ÁREA - Table
     checkPageBreak(25);
-    addSection('5. DISTRIBUIÇÃO DO EFETIVO POR ÁREA', '');
+    addSection('4. DISTRIBUIÇÃO DO EFETIVO POR ÁREA', '');
 
      // Adicione espaço extra aqui:
     yPos += 2;
     
     if (areaRows.length > 0) {
-        const areaHeaders = ['ÁREA/LOCAL', 'QTD. AGENTES', 'VIATURA'];
+        const areaHeaders = ['ÁREA/LOCAL', 'QTD. AGENTES', 'POSTO'];
         const areaData = areaRows.map(row => [
             row.area || '-',
             row.agents || '0',
-            row.vehicle || '-'
+            row.post || row.vehicle || '-'
         ]);
         
         const areaColWidths = [70, 35, 45];
@@ -2224,16 +2409,16 @@ Cargo/Função: ${position}`;
         yPos += 8;
     }
 
-    // 6. REGISTRO DE OCORRÊNCIAS
+    // 5. REGISTRO DE OCORRÊNCIAS
     const incidents = document.getElementById('incidents').value || 'Nenhuma ocorrência registrada durante a operação.';
-     addSectionJustified('6. REGISTRO DE OCORRÊNCIAS', incidents);
+     addSectionJustified('5. REGISTRO DE OCORRÊNCIAS', incidents);
     
      // Adicione espaço extra aqui:
     yPos += 2;
 
-    // 7. ALTERAÇÕES DE SERVIÇO
+    // 6. ALTERAÇÕES DE SERVIÇO
     checkPageBreak(8);
-    addSection('7. ALTERAÇÕES DE SERVIÇO', '');
+    addSection('6. ALTERAÇÕES DE SERVIÇO', '');
 
     // Adicione espaço extra aqui:
     yPos += 2;
@@ -2376,6 +2561,7 @@ Cargo/Função: ${position}`;
                pageWidth / 2, pageHeight - 10, { align: 'center' });
     }
     
+    const dateStr = new Date().toLocaleDateString('pt-BR');
     const fileName = `Relatorio_Operacao_${cleanOperationName}_${dateStr.replace(/\//g, '-')}.pdf`;
 
     // Save the PDF with cleaned filename
@@ -2433,12 +2619,88 @@ async function registerAccessLog(user) {
             classe: currentUserProfile?.classe || null,
             nomeGuerra: currentUserProfile?.nomeGuerra || user.displayName || null,
             matricula: currentUserProfile?.matricula || null,
+            action: 'login',
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         };
         await getAccessLogsCollection().add(payload);
     } catch (error) {
         console.error('Erro ao registrar acesso:', error);
     }
+}
+
+async function registerAdminActionLog({ action, justification, operationId, operationName, targetUserId, targetUserEmail }) {
+    if (!db || !auth || !auth.currentUser) return;
+    try {
+        const payload = {
+            uid: auth.currentUser.uid,
+            email: auth.currentUser.email || null,
+            classe: currentUserProfile?.classe || null,
+            nomeGuerra: currentUserProfile?.nomeGuerra || auth.currentUser.displayName || null,
+            matricula: currentUserProfile?.matricula || null,
+            action,
+            justification,
+            operationId,
+            operationName,
+            targetUserId: targetUserId || null,
+            targetUserEmail: targetUserEmail || null,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        await getAccessLogsCollection().add(payload);
+    } catch (error) {
+        console.error('Erro ao registrar ação administrativa:', error);
+    }
+}
+
+async function registerOperationEditLog({ operationId, operationName, changedFields }) {
+    if (!db || !auth || !auth.currentUser) return;
+    try {
+        const payload = {
+            uid: auth.currentUser.uid,
+            email: auth.currentUser.email || null,
+            classe: currentUserProfile?.classe || null,
+            nomeGuerra: currentUserProfile?.nomeGuerra || auth.currentUser.displayName || null,
+            matricula: currentUserProfile?.matricula || null,
+            action: 'update-operation',
+            justification: changedFields.join(', '),
+            operationId,
+            operationName,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        await getAccessLogsCollection().add(payload);
+    } catch (error) {
+        console.error('Erro ao registrar edição da operação:', error);
+    }
+}
+
+function getChangedOperationFields(previousData, nextData) {
+    const fields = [
+        { key: 'operationName', label: 'Nome da operação' },
+        { key: 'operationDate', label: 'Data' },
+        { key: 'startTime', label: 'Horário de início' },
+        { key: 'endTime', label: 'Horário de término' },
+        { key: 'location', label: 'Local' },
+        { key: 'neighborhood', label: 'Bairro' },
+        { key: 'coordinatorName', label: 'Coordenador' },
+        { key: 'registration', label: 'Matrícula' },
+        { key: 'position', label: 'Cargo/Função' },
+        { key: 'totalAgents', label: 'Efetivo' },
+        { key: 'incidents', label: 'Ocorrências' },
+        { key: 'summary', label: 'Resumo' },
+        { key: 'areaRows', label: 'Áreas de atuação' },
+        { key: 'vehicleRows', label: 'Viaturas' },
+        { key: 'serviceChangeRows', label: 'Mudanças de serviço' }
+    ];
+
+    return fields
+        .filter(field => {
+            const prevValue = previousData?.[field.key] ?? null;
+            const nextValue = nextData?.[field.key] ?? null;
+            if (Array.isArray(prevValue) || Array.isArray(nextValue) || typeof prevValue === 'object' || typeof nextValue === 'object') {
+                return JSON.stringify(prevValue) !== JSON.stringify(nextValue);
+            }
+            return prevValue !== nextValue;
+        })
+        .map(field => field.label);
 }
 
 async function loadLogsList(force = false) {
@@ -2450,7 +2712,7 @@ async function loadLogsList(force = false) {
 
     isLoadingLogs = true;
     if (logsTableBody) {
-        logsTableBody.innerHTML = '<tr><td colspan="5">Carregando logs...</td></tr>';
+        logsTableBody.innerHTML = '<tr><td colspan="8">Carregando logs...</td></tr>';
     }
 
     try {
@@ -2463,7 +2725,7 @@ async function loadLogsList(force = false) {
     } catch (error) {
         console.error('Erro ao carregar logs:', error);
         if (logsTableBody) {
-            logsTableBody.innerHTML = '<tr><td colspan="5">Falha ao carregar logs.</td></tr>';
+            logsTableBody.innerHTML = '<tr><td colspan="8">Falha ao carregar logs.</td></tr>';
         }
     } finally {
         isLoadingLogs = false;
@@ -2473,22 +2735,36 @@ async function loadLogsList(force = false) {
 function renderLogsTable(logs) {
     if (!logsTableBody) return;
     if (!logs.length) {
-        logsTableBody.innerHTML = '<tr><td colspan="5">Nenhum log encontrado.</td></tr>';
+        logsTableBody.innerHTML = '<tr><td colspan="8">Nenhum log encontrado.</td></tr>';
         return;
     }
 
     logsTableBody.innerHTML = '';
     logs.forEach(log => {
+        const actionLabel = getLogActionLabel(log.action);
+        const operationInfo = log.operationName || log.operationId || '-';
+        const justification = log.justification || '-';
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>${formatDateTime(log.createdAt)}</td>
+            <td>${actionLabel}</td>
             <td>${log.classe || '-'}</td>
             <td>${log.nomeGuerra || '-'}</td>
             <td>${log.matricula || '-'}</td>
             <td>${log.email || '-'}</td>
+            <td>${operationInfo}</td>
+            <td>${justification}</td>
         `;
         logsTableBody.appendChild(tr);
     });
+}
+
+function getLogActionLabel(action) {
+    if (!action || action === 'login') return 'Acesso';
+    if (action === 'update-operation') return 'Alteração de operação';
+    if (action === 'delete-operation') return 'Exclusão de operação';
+    if (action === 'delete-user') return 'Exclusão de usuário';
+    return action;
 }
 
 function applyLogsFilter() {
@@ -2508,6 +2784,15 @@ function applyLogsFilter() {
             const endOfDay = new Date(toValue);
             endOfDay.setHours(23, 59, 59, 999);
             if (createdAt > endOfDay) return false;
+        }
+        if (logsActionFilter === 'access') {
+            return !log.action || log.action === 'login';
+        }
+        if (logsActionFilter === 'update') {
+            return log.action && log.action.startsWith('update');
+        }
+        if (logsActionFilter === 'delete') {
+            return log.action && log.action.startsWith('delete');
         }
         return true;
     });
