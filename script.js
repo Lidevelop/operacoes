@@ -20,6 +20,9 @@ let isLoadingOperations = false;
 let forcedOperationIdFilter = null;
 let idleTimeoutId = null;
 const IDLE_LIMIT_MS = 30 * 60 * 1000;
+const SESSION_COUNTDOWN_MS = 2 * 60 * 1000;
+const SESSION_CONFIRM_AT_MS = 60 * 1000;
+const SESSION_DEADLINE_KEY = 'pmaracaju_session_deadline';
 const OPERATIONS_PAGE_SIZE = 5;
 let operationsCurrentPage = 1;
 const USERS_PAGE_SIZE = 8;
@@ -57,6 +60,13 @@ const formInputs = document.querySelectorAll('#operationFormView input, #operati
 const saveIndicator = document.getElementById('saveIndicator');
 const saveStatus = document.getElementById('saveStatus');
 const lastSaved = document.getElementById('lastSaved');
+const sessionTimer = document.getElementById('sessionTimer');
+const sessionTimerValue = document.getElementById('sessionTimerValue');
+const sessionConfirmModal = document.getElementById('sessionConfirmModal');
+const sessionConfirmContinue = document.getElementById('sessionConfirmContinue');
+const sessionConfirmLogout = document.getElementById('sessionConfirmLogout');
+const sessionTimerModal = document.getElementById('sessionTimerModal');
+const sessionTimerValueModal = document.getElementById('sessionTimerValueModal');
 const addAreaBtn = document.getElementById('addAreaBtn');
 const addVehicleBtn = document.getElementById('addVehicleBtn');
 const addServiceChangeBtn = document.getElementById('addServiceChangeBtn');
@@ -153,6 +163,8 @@ const addIncidentBtn = document.getElementById('addIncidentBtn');
 // State variables
 let saveTimeout = null;
 let isSaving = false;
+let sessionIntervalId = null;
+let sessionPrompted = false;
 let areaRows = [];
 let vehicleRows = [];
 let serviceChangeRows = [];
@@ -484,14 +496,27 @@ function initFirebase() {
     db = firebase.firestore();
     auth.onAuthStateChanged((user) => {
         if (user) {
+            const deadline = getSessionDeadline();
+            if (deadline && deadline <= Date.now()) {
+                clearSessionDeadline();
+                auth.signOut();
+                return;
+            }
             showAppView();
             loadOperationsList();
             initializeUserProfileFlow(user);
             loadEventTypes();
             assignNextOperationNumber();
+            if (deadline) {
+                sessionPrompted = false;
+                startSessionCountdown();
+            } else {
+                resetSessionCountdown();
+            }
         } else {
             showLoginView();
             resetUserProfileState();
+            clearSessionDeadline();
         }
     });
 }
@@ -618,6 +643,18 @@ function initializeEventListeners() {
             }
         });
     }
+
+    if (sessionConfirmContinue) {
+        sessionConfirmContinue.addEventListener('click', () => {
+            resetSessionCountdown();
+        });
+    }
+    if (sessionConfirmLogout) {
+        sessionConfirmLogout.addEventListener('click', () => {
+            handleSessionExpired();
+        });
+    }
+    // Não fecha o modal ao clicar fora
     
     // Update total agents count when agents are added/removed
     document.addEventListener('input', () => {
@@ -945,6 +982,8 @@ function initializeAuthListeners() {
     logoutBtn.addEventListener('click', async () => {
         if (!auth) return;
         await auth.signOut();
+        clearSessionDeadline();
+        clearSessionCountdown();
         currentOperationId = null;
         operationsCache = [];
         resetUserProfileState();
@@ -955,6 +994,9 @@ function showLoginView() {
     loginView.classList.remove('hidden');
     appView.classList.add('hidden');
     clearIdleTimer();
+    clearSessionCountdown();
+    updateSessionTimerUI(SESSION_COUNTDOWN_MS);
+    closeSessionConfirmModal();
 }
 
 function showAppView() {
@@ -997,6 +1039,105 @@ function resetIdleTimer() {
             auth.signOut();
         }
     }, IDLE_LIMIT_MS);
+}
+
+function getSessionDeadline() {
+    const raw = localStorage.getItem(SESSION_DEADLINE_KEY);
+    const parsed = parseInt(raw, 10);
+    return Number.isNaN(parsed) ? null : parsed;
+}
+
+function setSessionDeadline(timestamp) {
+    localStorage.setItem(SESSION_DEADLINE_KEY, String(timestamp));
+}
+
+function clearSessionDeadline() {
+    localStorage.removeItem(SESSION_DEADLINE_KEY);
+}
+
+function formatSessionCountdown(ms) {
+    const safeMs = Math.max(0, ms);
+    const totalSeconds = Math.ceil(safeMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function updateSessionTimerUI(remainingMs) {
+    if (sessionTimerValue) {
+        sessionTimerValue.textContent = formatSessionCountdown(remainingMs);
+    }
+    if (sessionTimerValueModal) {
+        sessionTimerValueModal.textContent = formatSessionCountdown(remainingMs);
+    }
+    if (sessionTimer) {
+        sessionTimer.classList.toggle('is-warning', remainingMs <= SESSION_CONFIRM_AT_MS);
+    }
+    if (sessionTimerModal) {
+        sessionTimerModal.classList.toggle('is-warning', remainingMs <= SESSION_CONFIRM_AT_MS);
+    }
+}
+
+function openSessionConfirmModal() {
+    if (!sessionConfirmModal) return;
+    sessionConfirmModal.style.display = 'flex';
+}
+
+function closeSessionConfirmModal() {
+    if (!sessionConfirmModal) return;
+    sessionConfirmModal.style.display = 'none';
+}
+
+function clearSessionCountdown() {
+    if (sessionIntervalId) {
+        clearInterval(sessionIntervalId);
+        sessionIntervalId = null;
+    }
+}
+
+function handleSessionExpired() {
+    clearSessionCountdown();
+    clearSessionDeadline();
+    sessionPrompted = false;
+    updateSessionTimerUI(0);
+    closeSessionConfirmModal();
+    if (auth && auth.currentUser) {
+        auth.signOut();
+    }
+}
+
+function checkSessionCountdown() {
+    const deadline = getSessionDeadline();
+    if (!deadline) return;
+    const remaining = deadline - Date.now();
+
+    updateSessionTimerUI(remaining);
+
+    if (remaining <= 0) {
+        handleSessionExpired();
+        return;
+    }
+
+    if (remaining <= SESSION_CONFIRM_AT_MS && !sessionPrompted) {
+        sessionPrompted = true;
+        openSessionConfirmModal();
+    }
+}
+
+function startSessionCountdown() {
+    clearSessionCountdown();
+    checkSessionCountdown();
+    sessionIntervalId = setInterval(checkSessionCountdown, 1000);
+}
+
+function resetSessionCountdown() {
+    if (!auth || !auth.currentUser) return;
+    const deadline = Date.now() + SESSION_COUNTDOWN_MS;
+    setSessionDeadline(deadline);
+    sessionPrompted = false;
+    closeSessionConfirmModal();
+    updateSessionTimerUI(deadline - Date.now());
+    startSessionCountdown();
 }
 
 function closeProfileMenu() {

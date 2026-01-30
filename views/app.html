@@ -15,6 +15,10 @@
                 <span id="saveStatus">Salvo automaticamente</span>
                 <span id="lastSaved">Último salvamento: --:--:--</span>
             </div>
+            <div class="session-timer" id="sessionTimer" aria-live="polite">
+                <i class="fas fa-hourglass-half"></i>
+                <strong id="sessionTimerValue">02:00</strong>
+            </div>
             <div class="admin-menu hidden" id="adminMenuContainer">
                 <button class="btn-small" id="adminMenuBtn" aria-haspopup="true" aria-expanded="false" aria-label="Opções de administrador">
                     <i class="fas fa-gear"></i>
@@ -544,6 +548,22 @@
             <div class="modal-buttons">
                 <button class="btn-small" id="confirmResetPassword">Enviar e-mail</button>
                 <button class="btn-small btn-danger" id="cancelResetPassword">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Session Confirmation Modal -->
+    <div class="modal" id="sessionConfirmModal">
+        <div class="modal-content">
+            <h3>Confirme sua atividade</h3>
+            <div class="session-timer" id="sessionTimerModal" aria-live="polite">
+                <i class="fas fa-hourglass-half"></i>
+                <strong id="sessionTimerValueModal">60:00</strong>
+            </div>
+            <p>O sistema precisa de confirmação para manter sua sessão ativa.</p>
+            <div class="modal-buttons">
+                <button class="btn-small" id="sessionConfirmContinue">Continuar sessão</button>
+                <button class="btn-small btn-danger" id="sessionConfirmLogout">Sair agora</button>
             </div>
         </div>
     </div>
