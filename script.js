@@ -3553,8 +3553,8 @@ Cargo/Função: ${position}`;
 
     await registerReportLog({
         operationId: currentOperationId || null,
-        operationNumber: document.getElementById('operationNumber')?.value || null,
-        operationName: document.getElementById('operationName')?.value || null
+        operationNumber: operationData?.operationNumber || null,
+        operationName: operationData?.operationName || null
     });
 }
 
