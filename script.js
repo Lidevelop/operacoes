@@ -1,3 +1,26 @@
+// Validação obrigatória do campo VTR nas ocorrências
+function validateIncidentsVTR() {
+    let valid = true;
+    let firstInvalid = null;
+    if (incidentsRows.length > 0) {
+        incidentsRows.forEach((row, idx) => {
+            const select = document.getElementById(`incident-vtr-${row.id}`);
+            if (!row.vtr || row.vtr === '') {
+                valid = false;
+                if (select) {
+                    select.classList.add('field-error');
+                    if (!firstInvalid) firstInvalid = select;
+                }
+            } else {
+                if (select) select.classList.remove('field-error');
+            }
+        });
+        if (firstInvalid) {
+            setTimeout(() => { firstInvalid.focus(); }, 100);
+        }
+    }
+    return valid;
+}
 // Initialize jsPDF
 const { jsPDF } = window.jspdf;
 
@@ -584,8 +607,8 @@ function initializeEventListeners() {
             saveStatus.textContent = 'Distribua os agentes por viatura antes de salvar.';
             return;
         }
-        if (!validateRequiredFields()) {
-            saveStatus.textContent = 'Preencha os campos obrigatórios antes de salvar.';
+        if (!validateRequiredFields() || !validateIncidentsVTR()) {
+            saveStatus.textContent = 'Preencha os campos obrigatórios antes de salvar. Todas as ocorrências devem ter um Posto/VTR selecionado.';
             return;
         }
         if (!validateOptionalFlags()) {
@@ -2323,7 +2346,8 @@ function addIncidentRow() {
     const rowId = Date.now();
     const newRow = {
         id: rowId,
-        description: ''
+        description: '',
+        vtr: '' // Novo campo para associar VTR
     };
     incidentsRows.push(newRow);
     updateIncidentsContainer();
@@ -2340,6 +2364,12 @@ function updateIncidentsContainer() {
     if (!incidentsContainer) return;
     incidentsContainer.innerHTML = '';
 
+    // Opções de VTRs cadastradas
+    const vtrOptions = vehicleRows.map(row => {
+        const label = row.prefix ? `${row.prefix} - ${row.post || ''}` : (row.post || '');
+        return `<option value="${row.prefix || row.post || ''}">${label}</option>`;
+    });
+
     incidentsRows.forEach((row, index) => {
         const itemDiv = document.createElement('div');
         itemDiv.className = 'service-change-item';
@@ -2350,9 +2380,31 @@ function updateIncidentsContainer() {
                     <i class="fas fa-trash-alt"></i> Remover
                 </button>
             </div>
+            <div class="incident-vtr-row">
+                <label for="incident-vtr-${row.id}">Posto/VTR:</label>
+                <select class="incident-vtr-select" data-id="${row.id}" id="incident-vtr-${row.id}">
+                    <option value="">Selecione</option>
+                    ${vtrOptions.join('')}
+                </select>
+            </div>
             <textarea class="service-change-textarea incident-textarea" data-id="${row.id}" placeholder="Descreva a ocorrência registrada">${row.description}</textarea>
         `;
         incidentsContainer.appendChild(itemDiv);
+        // Seleciona o valor salvo
+        const select = itemDiv.querySelector('.incident-vtr-select');
+        if (select) select.value = row.vtr || '';
+    });
+
+    document.querySelectorAll('.incident-vtr-select').forEach(select => {
+        select.addEventListener('change', (e) => {
+            const rowId = parseInt(e.target.getAttribute('data-id'));
+            const value = e.target.value;
+            const rowIndex = incidentsRows.findIndex(row => row.id === rowId);
+            if (rowIndex !== -1) {
+                incidentsRows[rowIndex].vtr = value;
+                triggerSave();
+            }
+        });
     });
 
     document.querySelectorAll('.incident-textarea').forEach(textarea => {
@@ -2738,8 +2790,7 @@ function renderOperationsList(operations) {
             const id = button.getAttribute('data-id');
             const operation = operationsCache.find(item => item.id === id);
             if (operation) {
-                applyFormData(operation);
-                await exportToPDF();
+                await exportToPDF(operation);
             }
         });
     });
@@ -2932,7 +2983,8 @@ function loadImage(src) {
     });
 }
 
-async function exportToPDF() {
+// Nova versão: recebe dados da operação como parâmetro
+async function exportToPDF(operationData) {
     // Create PDF document in A4 format
     const doc = new jsPDF('p', 'mm', 'a4');
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -3034,7 +3086,7 @@ async function exportToPDF() {
     }
     
     // Clean operation name for filename
-    const operationName = document.getElementById('operationName').value || 'Não informado';
+    const operationName = operationData?.operationName || 'Não informado';
     const cleanOperationName = operationName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
     
     const logoImage = await loadImage('logo.jpg');
@@ -3162,74 +3214,82 @@ async function exportToPDF() {
     
     // Function to create a professional table
     function createTable(headers, data, colWidths, showTotal = false, totalLabel = '') {
-        checkPageBreak(15 + (data.length * 7)); // REDUZIDO: altura das linhas
-        
-        // Draw table header
-        doc.setFillColor(30, 58, 95);
-        doc.rect(margin, yPos, contentWidth, 7, 'F'); // REDUZIDO: altura do cabeçalho
-        
-        doc.setTextColor(255, 255, 255);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
-        
-        let xPos = margin;
-        for (let i = 0; i < headers.length; i++) {
-            doc.text(headers[i], xPos + 2, yPos + 4.5); // REDUZIDO: posicionamento vertical
-            xPos += colWidths[i];
+        // Sempre desenha o cabeçalho antes de cada página
+        function drawTableHeader() {
+            doc.setFillColor(30, 58, 95);
+            doc.rect(margin, yPos, contentWidth, 7, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(10);
+            let xPos = margin;
+            for (let i = 0; i < headers.length; i++) {
+                doc.text(headers[i], xPos + 2, yPos + 4.5);
+                xPos += colWidths[i];
+            }
+            yPos += 7;
         }
-        
-        yPos += 7; // REDUZIDO
-        
-        // Draw table rows
+
+        drawTableHeader();
         doc.setTextColor(0, 0, 0);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(10);
-        
+
         data.forEach((row, rowIndex) => {
-            checkPageBreak(10); // REDUZIDO
-            
+            // Se não couber mais uma linha, quebra a página e redesenha o cabeçalho
+            if (yPos + 7 > pageHeight - bottomMargin) {
+                doc.addPage();
+                yPos = margin;
+                addPageHeader();
+                drawTableHeader();
+                doc.setTextColor(0, 0, 0); // Corrige cor do texto após quebra de página
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(10);
+            }
             // Alternate row colors
             if (rowIndex % 2 === 0) {
                 doc.setFillColor(245, 245, 245);
-                doc.rect(margin, yPos, contentWidth, 7, 'F'); // REDUZIDO: altura da linha
+                doc.rect(margin, yPos, contentWidth, 7, 'F');
             }
-            
             // Add row content
-            xPos = margin;
+            let xPos = margin;
             for (let i = 0; i < row.length; i++) {
                 const cellContent = row[i] || '-';
                 const lines = doc.splitTextToSize(cellContent, colWidths[i] - 4);
-                doc.text(lines[0] || '-', xPos + 2, yPos + 4.5); // REDUZIDO: posicionamento vertical
+                doc.text(lines[0] || '-', xPos + 2, yPos + 4.5);
                 xPos += colWidths[i];
             }
-            
-            yPos += 7; // REDUZIDO: altura da linha
+            yPos += 7;
         });
-        
-        yPos += 8; // REDUZIDO: espaço após tabela
-        
+
+        yPos += 8;
+
         // Add total if requested
         if (showTotal && totalLabel) {
+            if (yPos + 7 > pageHeight - bottomMargin) {
+                doc.addPage();
+                yPos = margin;
+                addPageHeader();
+            }
             doc.setFillColor(240, 240, 240);
-            doc.rect(margin, yPos, contentWidth, 7, 'F'); // REDUZIDO
-            
+            doc.rect(margin, yPos, contentWidth, 7, 'F');
             doc.setTextColor(30, 58, 95);
-            setFontStyle('bold');
-            doc.text(totalLabel, margin + 5, yPos + 4.5); // REDUZIDO
-            yPos += 10; // REDUZIDO
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(10);
+            doc.text(totalLabel, margin + 5, yPos + 4.5);
+            yPos += 10;
         }
-        
-        yPos += 12; // REDUZIDO
+
+        yPos += 12;
     }
     
     // 1. IDENTIFICAÇÃO DA OPERAÇÃO
-    const operationNumber = document.getElementById('operationNumber')?.value || 'Não informado';
-    const operationDate = document.getElementById('operationDate').value || 'Não informado';
-    const startTime = document.getElementById('startTime').value || 'Não informado';
-    const endTime = document.getElementById('endTime').value || 'Não informado';
-    const eventType = document.getElementById('eventType')?.value || 'Não informado';
-    const location = document.getElementById('location').value || 'Não informado';
-    const neighborhood = document.getElementById('neighborhood').value || 'Não informado';
+    const operationNumber = operationData?.operationNumber || 'Não informado';
+    const operationDate = operationData?.operationDate || 'Não informado';
+    const startTime = operationData?.startTime || 'Não informado';
+    const endTime = operationData?.endTime || 'Não informado';
+    const eventType = operationData?.eventType || 'Não informado';
+    const location = operationData?.location || 'Não informado';
+    const neighborhood = operationData?.neighborhood || 'Não informado';
     
     const identificationContent = `Operação: ${operationName}
 Nº da Operação: ${operationNumber}
@@ -3243,9 +3303,9 @@ Local: ${location} - ${neighborhood}`;
     yPos += 2;
     
     // 2. COORDENAÇÃO / RESPONSÁVEL
-    const coordinatorName = document.getElementById('coordinatorName').value || 'Não informado';
-    const registration = document.getElementById('registration').value || 'Não informado';
-    const position = document.getElementById('position').value || 'Não informado';
+    const coordinatorName = operationData?.coordinatorName || 'Não informado';
+    const registration = operationData?.registration || 'Não informado';
+    const position = operationData?.position || 'Não informado';
     
     const coordinationContent = `Coordenador: ${coordinatorName}
 Matrícula: ${registration}
@@ -3262,16 +3322,16 @@ Cargo/Função: ${position}`;
      // Adicione espaço extra aqui:
     yPos += 2;
     
-    if (vehicleRows.length > 0) {
+    const vehicleRowsData = operationData?.vehicleRows || [];
+    if (vehicleRowsData.length > 0) {
         const vehicleHeaders = ['PREFIXO', 'POSTO', 'TIPO'];
-        const vehicleData = vehicleRows.map(row => [
+        const vehicleData = vehicleRowsData.map(row => [
             row.prefix || '-',
             row.post || '-',
             row.type || '-'
         ]);
-        
         const vehicleColWidths = [40, 50, 60];
-        createTable(vehicleHeaders, vehicleData, vehicleColWidths, true, `TOTAL DE VIATURAS: ${vehicleRows.length}`);
+        createTable(vehicleHeaders, vehicleData, vehicleColWidths, true, `TOTAL DE VIATURAS: ${vehicleRowsData.length}`);
     } else {
         setTextColor(100, 100, 100);
         doc.text('Nenhuma viatura cadastrada.', margin, yPos);
@@ -3285,18 +3345,16 @@ Cargo/Função: ${position}`;
      // Adicione espaço extra aqui:
     yPos += 2;
     
-    if (areaRows.length > 0) {
+    const areaRowsData = operationData?.areaRows || [];
+    if (areaRowsData.length > 0) {
         const areaHeaders = ['POSTO', 'QTD. AGENTES', 'ÁREA/LOCAL'];
-        const areaData = areaRows.map(row => [
+        const areaData = areaRowsData.map(row => [
             row.post || row.vehicle || '-',
             row.agents || '0',
             row.area || '-'
         ]);
-        
         const areaColWidths = [45, 35, 70];
-        
-        // Calculate total agents distributed
-        const totalAgentsDistributed = areaRows.reduce((sum, row) => sum + (parseInt(row.agents) || 0), 0);
+        const totalAgentsDistributed = areaRowsData.reduce((sum, row) => sum + (parseInt(row.agents) || 0), 0);
         createTable(areaHeaders, areaData, areaColWidths, true, `TOTAL DE AGENTES DISTRIBUÍDOS: ${totalAgentsDistributed}`);
     } else {
         setTextColor(100, 100, 100);
@@ -3305,14 +3363,51 @@ Cargo/Função: ${position}`;
     }
 
     // 5. REGISTRO DE OCORRÊNCIAS
-    const incidentLines = incidentsRows
-        .map(row => (row.description || '').trim())
-        .filter(Boolean)
-        .map((text, index) => `Ocorrência ${index + 1}: ${text}`);
-    const incidentsText = incidentLines.length
-        ? incidentLines.join('\n')
-        : 'Nenhuma ocorrência registrada durante a operação.';
-     addSectionJustified('5. REGISTRO DE OCORRÊNCIAS', incidentsText);
+    const incidentsRowsData = operationData?.incidentsRows || [];
+    if (incidentsRowsData.length > 0) {
+        checkPageBreak(8);
+        setTextColor(30, 58, 95);
+        setFontSize(14);
+        setFontStyle('bold');
+        doc.text('5. REGISTRO DE OCORRÊNCIAS', margin, yPos);
+        yPos += 8;
+
+        incidentsRowsData.forEach((row, index) => {
+            checkPageBreak(10);
+            // Título em negrito
+            setTextColor(30, 58, 95);
+            setFontSize(12);
+            setFontStyle('bold');
+            doc.text(`Ocorrência ${index + 1}`, margin + 1, yPos);
+            // VTR associada
+            setFontStyle('normal');
+            setTextColor(0, 0, 0);
+            if (row.vtr) {
+                doc.text(`Posto/VTR: ${row.vtr}`, margin + 50, yPos);
+            }
+            yPos += 7.5;
+            // Descrição
+            setFontSize(11);
+            setFontStyle('normal');
+            if (row.description && row.description.trim() !== '') {
+                const lines = doc.splitTextToSize(row.description, contentWidth - 2);
+                lines.forEach((line, lineIndex) => {
+                    checkPageBreak(6);
+                    // Justifica todas as linhas exceto a última
+                    if (lineIndex < lines.length - 1) {
+                        renderJustifiedText(line, margin + 3, yPos, contentWidth - 2);
+                    } else {
+                        doc.text(line, margin + 3, yPos);
+                    }
+                    yPos += 7.5;
+                });
+            }
+            yPos += 2; // Espaço de 2px entre ocorrências
+        });
+        yPos += 8;
+    } else {
+        addSectionJustified('5. REGISTRO DE OCORRÊNCIAS', 'Nenhuma ocorrência registrada durante a operação.');
+    }
     
      // Adicione espaço extra aqui:
     yPos += 2;
@@ -3325,46 +3420,34 @@ Cargo/Função: ${position}`;
     yPos += 2;
     
     // Verificar se há alterações de serviço com conteúdo
-    const hasServiceChanges = serviceChangeRows.some(row => row.description && row.description.trim() !== '');
+    const serviceChangeRowsData = operationData?.serviceChangeRows?.map((row, index) => ({ ...row, index: index + 1 })) || [];
+    const hasServiceChanges = serviceChangeRowsData.some(row => row.description && row.description.trim() !== '');
     
     if (hasServiceChanges) {
         setTextColor(0, 0, 0);
         setFontSize(11);
         setFontStyle('normal');
-        
-        serviceChangeRows.forEach((row, index) => {
-            // Verificar se esta alteração tem conteúdo
+        serviceChangeRowsData.forEach((row) => {
             const description = row.description && row.description.trim() !== '' ? row.description : null;
-            
             if (description) {
-                // Check page break for title only
                 checkPageBreak(8);
-                
-                // Add alteration title
                 setTextColor(30, 58, 95);
                 setFontStyle('bold');
                 doc.text(`Alteração ${row.index}:`, margin, yPos);
                 yPos += 8;
-                
-                // Add alteration description com texto justificado
                 setTextColor(0, 0, 0);
                 setFontStyle('normal');
                 const lines = doc.splitTextToSize(description, contentWidth - 2);
                 lines.forEach((line, lineIndex) => {
-                    // Check page break for each line
                     checkPageBreak(6);
-                    
-                    // Render justified text for all lines except the last
                     if (lineIndex < lines.length - 1) {
                         renderJustifiedText(line, margin + 1, yPos, contentWidth - 2);
                     } else {
-                        // Last line: render left-aligned
                         doc.text(line, margin + 1, yPos);
                     }
                     yPos += 7.5;
                 });
-                
-                yPos += 7.5; // Espaço entre alterações
+                yPos += 7.5;
             }
         });
     } else {
@@ -3376,7 +3459,7 @@ Cargo/Função: ${position}`;
     yPos += 2;
 
     // 7. RESUMO DA OPERAÇÃO
-    const summary = document.getElementById('summary').value || 'Nenhum resumo fornecido.';
+    const summary = operationData?.summary || 'Nenhum resumo fornecido.';
     addSectionJustified('7. RESUMO DA OPERAÇÃO', summary);
 
      // Adicione espaço extra aqui:
@@ -3397,9 +3480,9 @@ Cargo/Função: ${position}`;
 
     yPos += 10;
 
-    const registradorProfile = currentOperationMeta?.createdBy || {};
-    const createdAtText = formatDateTime(currentOperationMeta?.createdAt);
-    const updatedAtText = formatDateTime(currentOperationMeta?.updatedAt);
+    const registradorProfile = operationData?.createdBy || {};
+    const createdAtText = formatDateTime(operationData?.createdAt);
+    const updatedAtText = formatDateTime(operationData?.updatedAt);
 
     setTextColor(0, 0, 0);
     setFontSize(11);

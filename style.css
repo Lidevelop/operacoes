@@ -1,3 +1,21 @@
+/* Incidents VTR Dropdown */
+.incident-vtr-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+.incident-vtr-row label {
+    font-weight: 600;
+    color: var(--primary-color);
+}
+.incident-vtr-select {
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
+    border: 1px solid var(--medium-gray);
+    font-size: 1rem;
+    min-width: 120px;
+}
 :root {
     --primary-color: #1e3a5f;
     --accent-color: #c9a227;
