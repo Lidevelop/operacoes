@@ -438,7 +438,7 @@ function triggerSave() {
 // Update total agents count based on actual agents added
 function updateTotalAgentsCount() {
     const total = agentRows.length;
-    document.getElementById('totalAgents').value = total;
+    document.getElementById('totalAgents').textContent = total;
 }
 
 // AREA DISTRIBUTION FUNCTIONS
@@ -918,7 +918,7 @@ function getFormData() {
         coordinatorName: document.getElementById('coordinatorName').value,
         registration: document.getElementById('registration').value,
         position: document.getElementById('position').value,
-        totalAgents: document.getElementById('totalAgents').value,
+        totalAgents: document.getElementById('totalAgents').textContent,
         incidents: document.getElementById('incidents').value,
         summary: document.getElementById('summary').value,
         areaRows: areaRows,
@@ -938,7 +938,7 @@ function applyFormData(formData) {
     document.getElementById('coordinatorName').value = formData.coordinatorName || '';
     document.getElementById('registration').value = formData.registration || '';
     document.getElementById('position').value = formData.position || '';
-    document.getElementById('totalAgents').value = formData.totalAgents || '0';
+    document.getElementById('totalAgents').textContent = formData.totalAgents || '0';
     document.getElementById('incidents').value = formData.incidents || '';
     document.getElementById('summary').value = formData.summary || '';
 
