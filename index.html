@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polícia Municipal de Aracaju - Formulário de Gestão de Operações</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Login View -->
+    <div class="login-view" id="loginView">
+        <div class="login-card">
+            <div class="login-header">
+                <i class="fas fa-shield-alt"></i>
+                <h1>Polícia Municipal de Aracaju</h1>
+                <p>Sistema de Gestão de Operações</p>
+            </div>
+            <form id="loginForm" class="login-form">
+                <div class="form-group">
+                    <label for="loginEmail"><i class="fas fa-envelope"></i> E-mail</label>
+                    <input type="email" id="loginEmail" placeholder="seu@email.com" required>
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword"><i class="fas fa-lock"></i> Senha</label>
+                    <input type="password" id="loginPassword" placeholder="Sua senha" required>
+                </div>
+                <p class="login-error" id="loginError" aria-live="polite"></p>
+                <button type="submit" class="btn-action btn-export login-btn">
+                    <i class="fas fa-sign-in-alt"></i>
+                    Entrar
+                </button>
+                <p class="login-helper">Apenas usuários autorizados podem acessar. Sem opção de cadastro.</p>
+            </form>
+        </div>
+    </div>
+
+    <!-- App View -->
+    <div class="app-view hidden" id="appView">
+        <!-- Header -->
+        <header>
+            <div class="logo-container">
+                <i class="fas fa-shield-alt logo-icon"></i>
+                <div class="logo-text">
+                    <h1>Polícia Municipal de Aracaju</h1>
+                    <span>Formulário de Gestão de Operações</span>
+                </div>
+            </div>
+            <div class="header-actions">
+                <div class="save-indicator" id="saveIndicator">
+                    <i class="fas fa-save"></i>
+                    <span id="saveStatus">Salvo automaticamente</span>
+                    <span id="lastSaved">Último salvamento: --:--:--</span>
+                </div>
+                <button class="btn-small btn-danger" id="logoutBtn">
+                    <i class="fas fa-sign-out-alt"></i>
+                    Sair
+                </button>
+            </div>
+        </header>
+
+        <!-- Main container -->
+        <main class="container">
+            <div class="app-nav">
+                <button class="app-nav-btn" id="currentOperationBtn">
+                    <i class="fas fa-file-alt"></i>
+                    Operação Atual
+                </button>
+                <button class="app-nav-btn" id="newOperationBtn">
+                    <i class="fas fa-plus-circle"></i>
+                    Nova Operação
+                </button>
+                <button class="app-nav-btn" id="viewManagerBtn">
+                    <i class="fas fa-list"></i>
+                    Operações Registradas
+                </button>
+            </div>
+
+            <!-- Manager View -->
+            <section class="form-section hidden" id="managerView">
+                <h2 class="section-title">
+                    <i class="fas fa-clipboard-list"></i>
+                    Operações Registradas
+                </h2>
+                <div class="manager-filters">
+                    <div class="form-group">
+                        <label for="filterText"><i class="fas fa-search"></i> Busca geral</label>
+                        <input type="text" id="filterText" placeholder="Nome, coordenador, local, matrícula...">
+                    </div>
+                    <div class="form-group">
+                        <label for="filterDateFrom"><i class="fas fa-calendar-alt"></i> Data inicial</label>
+                        <input type="date" id="filterDateFrom">
+                    </div>
+                    <div class="form-group">
+                        <label for="filterDateTo"><i class="fas fa-calendar-alt"></i> Data final</label>
+                        <input type="date" id="filterDateTo">
+                    </div>
+                    <div class="form-group">
+                        <label for="refreshOperations"><i class="fas fa-sync-alt"></i> Atualizar</label>
+                        <button class="btn-action btn-export" id="refreshOperations">
+                            <i class="fas fa-rotate"></i>
+                            Recarregar
+                        </button>
+                    </div>
+                </div>
+                <div id="operationsList" class="operations-list"></div>
+                <div class="pagination" id="operationsPagination"></div>
+            </section>
+
+            <!-- Operation Form View -->
+            <div id="operationFormView">
+                <div class="edit-lock-banner hidden" id="editLockBanner">
+                    <i class="fas fa-lock"></i>
+                    Edição bloqueada. Só é possível editar no dia da operação ou até 3 dias depois.
+                </div>
+                <!-- Identification Section -->
+                <section class="form-section">
+            <h2 class="section-title">
+                <i class="fas fa-id-card"></i>
+                Identificação da Operação
+            </h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="operationName" class="required-label"><i class="fas fa-heading"></i> Nome da Operação</label>
+                    <input type="text" id="operationName" placeholder="Ex: Operação Segurança Integrada" class="required">
+                </div>
+                <div class="form-group">
+                    <label for="operationDate" class="required-label"><i class="fas fa-calendar-alt"></i> Data</label>
+                    <input type="date" id="operationDate" class="required">
+                </div>
+                <div class="form-group">
+                    <label for="startTime" class="required-label"><i class="fas fa-clock"></i> Horário de Início</label>
+                    <input type="time" id="startTime" class="required">
+                </div>
+                <div class="form-group">
+                    <label for="endTime" class="required-label"><i class="fas fa-clock"></i> Horário de Término</label>
+                    <input type="time" id="endTime" class="required">
+                </div>
+                <div class="form-group">
+                    <label for="location" class="required-label"><i class="fas fa-map-marker-alt"></i> Local / Bairro</label>
+                    <input type="text" id="location" placeholder="Ex: Centro, Atalaia, etc." class="required">
+                </div>
+            </div>
+        </section>
+
+        <!-- Coordination Section -->
+        <section class="form-section">
+            <h2 class="section-title">
+                <i class="fas fa-user-tie"></i>
+                Coordenação / Responsável
+            </h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="coordinatorName" class="required-label"><i class="fas fa-user"></i> Nome do Coordenador</label>
+                    <input type="text" id="coordinatorName" placeholder="Nome completo" class="required">
+                </div>
+                <div class="form-group">
+                    <label for="registration" class="required-label"><i class="fas fa-id-badge"></i> Matrícula</label>
+                    <input type="text" id="registration" placeholder="Número de matrícula" class="required">
+                </div>
+                <div class="form-group">
+                    <label for="position" class="required-label"><i class="fas fa-briefcase"></i> Cargo / Função</label>
+                    <input type="text" id="position" placeholder="Ex: Coordenador Geral" class="required">
+                </div>
+            </div>
+        </section>
+
+        <!-- Personnel Section -->
+        <section class="form-section">
+            <h2 class="section-title">
+                <i class="fas fa-users"></i>
+                Efetivo Empregado
+            </h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="totalAgents"><i class="fas fa-user-friends"></i> Total de Agentes</label>
+                    <input type="number" id="totalAgents" min="0" value="0" class="required">
+                </div>
+            </div>
+            
+            <!-- Table for desktop -->
+            <div class="table-responsive">
+                <table id="agentsTable">
+                    <thead>
+                        <tr>
+                            <th>Classe</th>
+                            <th>Nome de Guerra</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="agentsTableBody">
+                        <!-- Rows will be added here -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Cards for mobile -->
+            <div class="dynamic-cards-container" id="agentsCardsContainer">
+                <!-- Cards will be added here -->
+            </div>
+            
+            <button class="btn-add-row" id="addAgentBtn">
+                <i class="fas fa-user-plus"></i>
+                Adicionar Agente
+            </button>
+        </section>
+
+        <!-- Vehicles Section -->
+        <section class="form-section">
+            <h2 class="section-title">
+                <i class="fas fa-car"></i>
+                Viaturas (VTRs) Utilizadas
+            </h2>
+            
+            <!-- Table for desktop -->
+            <div class="table-responsive">
+                <table id="vehiclesTable">
+                    <thead>
+                        <tr>
+                            <th>Prefixo</th>
+                            <th>Posto</th>
+                            <th>Tipo</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="vehiclesTableBody">
+                        <!-- Rows will be added here -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Cards for mobile -->
+            <div class="dynamic-cards-container" id="vehiclesCardsContainer">
+                <!-- Cards will be added here -->
+            </div>
+            
+            <button class="btn-add-row" id="addVehicleBtn">
+                <i class="fas fa-car"></i>
+                Adicionar Viatura
+            </button>
+        </section>
+
+        <!-- Area Distribution Section -->
+        <section class="form-section">
+            <h2 class="section-title">
+                <i class="fas fa-map-marked-alt"></i>
+                Distribuição do Efetivo por Área
+            </h2>
+            
+            <!-- Table for desktop -->
+            <div class="table-responsive">
+                <table id="areaTable">
+                    <thead>
+                        <tr>
+                            <th>Área/Local</th>
+                            <th>Qtd. Agentes</th>
+                            <th>Viatura</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="areaTableBody">
+                        <!-- Rows will be added here -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Cards for mobile -->
+            <div class="cards-container" id="areaCardsContainer">
+                <!-- Cards will be added here -->
+            </div>
+            
+            <button class="btn-add-row" id="addAreaBtn">
+                <i class="fas fa-plus-circle"></i>
+                Adicionar Área
+            </button>
+        </section>
+
+        <!-- Incidents Section -->
+        <section class="form-section">
+            <h2 class="section-title">
+                <i class="fas fa-exclamation-triangle"></i>
+                Registro de Ocorrências
+            </h2>
+            <div class="form-group">
+                <label for="incidents"><i class="fas fa-clipboard-list"></i> Descrição das Ocorrências</label>
+                <textarea id="incidents" placeholder="Descreva as ocorrências registradas durante a operação"></textarea>
+            </div>
+        </section>
+
+        <!-- Service Changes Section -->
+        <section class="form-section">
+            <h2 class="section-title">
+                <i class="fas fa-exchange-alt"></i>
+                Alterações de Serviço
+            </h2>
+            
+            <!-- Service changes container -->
+            <div id="serviceChangesContainer">
+                <!-- Service change items will be added here -->
+            </div>
+            
+            <button class="btn-add-row" id="addServiceChangeBtn">
+                <i class="fas fa-exchange-alt"></i>
+                Adicionar Alteração
+            </button>
+        </section>
+
+        <!-- Summary Section -->
+        <section class="form-section">
+            <h2 class="section-title">
+                <i class="fas fa-file-alt"></i>
+                Resumo da Operação
+            </h2>
+            <div class="form-group">
+                <label for="summary" class="required-label"><i class="fas fa-edit"></i> Relato Final da Operação</label>
+                <textarea id="summary" class="required" placeholder="Faça um resumo geral da operação, incluindo resultados e observações finais"></textarea>
+            </div>
+        </section>
+
+                <!-- Action Buttons -->
+                <div class="action-buttons">
+                    <button class="btn-action btn-save" id="saveDbBtn">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        Salvar Operação
+                    </button>
+                    <button class="btn-action btn-clear" id="clearBtn">
+                        <i class="fas fa-trash-alt"></i>
+                        Limpar Formulário
+                    </button>
+                </div>
+            </div>
+        </main>
+
+    <!-- Confirmation Modal -->
+    <div class="modal" id="confirmationModal">
+        <div class="modal-content">
+            <h3>Confirmar Limpeza</h3>
+            <p>Tem certeza que deseja limpar todos os dados do formulário? Esta ação não pode ser desfeita.</p>
+            <div class="modal-buttons">
+                <button class="btn-small" id="confirmClear">Sim, Limpar Tudo</button>
+                <button class="btn-small btn-danger" id="cancelClear">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+        <!-- Footer -->
+        <footer>
+            <p>Polícia Municipal de Aracaju - Formulário de Gestão de Operações</p>
+            <p>© 2026 - Todos os direitos reservados</p>
+            <p style="font-size: 0.9rem; opacity: 0.7;">Versão 3.0 - Sistema de Gestão Operacional</p>
+        </footer>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
