@@ -205,6 +205,8 @@ let isLoadingLogs = false;
 let logsCurrentLimit = 100;
 let logsActionFilter = 'all';
 let eventTypesCache = [];
+let eventTypesCacheTimestamp = 0;
+const EVENT_TYPES_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 
 const CLASSE_OPTIONS = [
     'S INSP 2ª CL',
@@ -334,8 +336,15 @@ async function ensureEventTypesDocument() {
 async function loadEventTypes() {
     if (!db) return;
     const selectedValue = eventTypeSelect?.value || '';
+    // Se o cache for recente, usa o cache
+    if (eventTypesCache.length > 0 && (Date.now() - eventTypesCacheTimestamp < EVENT_TYPES_CACHE_TTL)) {
+        renderEventTypeOptions(eventTypesCache, selectedValue);
+        renderEventTypeModalList();
+        return;
+    }
     const items = await ensureEventTypesDocument();
     eventTypesCache = Array.from(new Set(items.map(normalizeEventType).filter(Boolean)));
+    eventTypesCacheTimestamp = Date.now();
     renderEventTypeOptions(eventTypesCache, selectedValue);
     renderEventTypeModalList();
 }
@@ -360,10 +369,15 @@ async function addEventTypeFromModal() {
             items: firebase.firestore.FieldValue.arrayUnion(normalized),
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
-        await loadEventTypes();
+        // Atualiza cache local imediatamente
+        eventTypesCache.push(normalized);
+        eventTypesCache = Array.from(new Set(eventTypesCache));
+        eventTypesCacheTimestamp = Date.now();
+        renderEventTypeOptions(eventTypesCache, normalized);
+        renderEventTypeModalList();
         eventTypeSelect.value = normalized;
         eventTypeInput.value = '';
-        triggerSave();
+        triggerSaveDebounced();
     } catch (error) {
         console.error('Erro ao adicionar tipo de evento:', error);
         if (eventTypeModalError) {
@@ -387,20 +401,35 @@ async function deleteEventType(type) {
             items: firebase.firestore.FieldValue.arrayRemove(normalized),
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
+        // Remove do cache local imediatamente
         eventTypesCache = eventTypesCache.filter(item => item !== normalized);
+        eventTypesCacheTimestamp = Date.now();
         if (eventTypeSelect && eventTypeSelect.value === normalized) {
             eventTypeSelect.value = '';
         }
         renderEventTypeOptions(eventTypesCache, eventTypeSelect?.value || '');
         renderEventTypeModalList();
         await registerEventTypeLog({ action: 'delete-event-type', eventType: normalized });
-        triggerSave();
+        triggerSaveDebounced();
     } catch (error) {
         console.error('Erro ao excluir tipo de evento:', error);
         if (eventTypeModalError) {
             eventTypeModalError.textContent = 'Não foi possível excluir o tipo de evento.';
         }
     }
+// Debounce utilitário para evitar múltiplos saves em sequência
+function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+    };
+}
+
+// Substitua triggerSave por uma versão com debounce
+const triggerSaveDebounced = debounce(triggerSave, 2000); // 2 segundos
+
+// Exemplo: onde houver triggerSave(), troque por triggerSaveDebounced() nos pontos de autosave
 }
 
 function setOperationNumber(sequence, year) {
@@ -551,7 +580,7 @@ function initializeEventListeners() {
             if (input.classList.contains('field-error') && input.value.trim() !== '') {
                 input.classList.remove('field-error');
             }
-            triggerSave();
+            triggerSaveDebounced();
         });
     });
     
@@ -564,7 +593,7 @@ function initializeEventListeners() {
         // Expand on input
         textarea.addEventListener('input', function() {
             autoExpandTextarea(this);
-            triggerSave();
+            triggerSaveDebounced();
         });
     });
     
@@ -1717,7 +1746,7 @@ function insertSummaryTemplate() {
     }
     updateSummaryTemplateState();
     autoExpandTextarea(summaryField);
-    triggerSave();
+    triggerSaveDebounced();
 }
 
 function openResetPasswordModal(user) {
@@ -1961,7 +1990,7 @@ function addAreaRow() {
     updateAreaTable();
     updateAreaCards();
     updateTotalAgentsCount();
-    triggerSave();
+    triggerSaveDebounced();
 }
 
 function removeAreaRow(rowId) {
@@ -1974,7 +2003,7 @@ function removeAreaRow(rowId) {
     updateAreaTable();
     updateAreaCards();
     updateTotalAgentsCount();
-    triggerSave();
+    triggerSaveDebounced();
 }
 
 function updateAreaTable() {
@@ -2007,7 +2036,7 @@ function updateAreaTable() {
                 if (field === 'agents') {
                     updateTotalAgentsCount();
                 }
-                triggerSave();
+                triggerSaveDebounced();
             }
         };
         if (input.tagName === 'SELECT') {
@@ -2067,7 +2096,7 @@ function updateAreaCards() {
                 if (field === 'agents') {
                     updateTotalAgentsCount();
                 }
-                triggerSave();
+                triggerSaveDebounced();
             }
         };
         if (input.tagName === 'SELECT') {
@@ -2098,7 +2127,7 @@ function addVehicleRow() {
     vehicleRows.push(newRow);
     updateVehiclesTable();
     updateVehiclesCards();
-    triggerSave();
+    triggerSaveDebounced();
 }
 
 function removeVehicleRow(rowId) {
@@ -2110,7 +2139,7 @@ function removeVehicleRow(rowId) {
     vehicleRows = vehicleRows.filter(row => row.id !== rowId);
     updateVehiclesTable();
     updateVehiclesCards();
-    triggerSave();
+    triggerSaveDebounced();
 }
 
 function updateVehiclesTable() {
@@ -2151,7 +2180,7 @@ function updateVehiclesTable() {
                 const rowIndex = vehicleRows.findIndex(row => row.id === rowId);
                 if (rowIndex !== -1) {
                     vehicleRows[rowIndex][field] = value;
-                    triggerSave();
+                    triggerSaveDebounced();
                 }
             });
         } else if (input.tagName === 'SELECT') {
@@ -2163,7 +2192,7 @@ function updateVehiclesTable() {
                 const rowIndex = vehicleRows.findIndex(row => row.id === rowId);
                 if (rowIndex !== -1) {
                     vehicleRows[rowIndex][field] = value;
-                    triggerSave();
+                    triggerSaveDebounced();
                 }
             });
         }
@@ -2229,7 +2258,7 @@ function updateVehiclesCards() {
                 const rowIndex = vehicleRows.findIndex(row => row.id === rowId);
                 if (rowIndex !== -1) {
                     vehicleRows[rowIndex][field] = value;
-                    triggerSave();
+                    triggerSaveDebounced();
                 }
             });
         } else if (input.tagName === 'SELECT') {
@@ -2241,7 +2270,7 @@ function updateVehiclesCards() {
                 const rowIndex = vehicleRows.findIndex(row => row.id === rowId);
                 if (rowIndex !== -1) {
                     vehicleRows[rowIndex][field] = value;
-                    triggerSave();
+                    triggerSaveDebounced();
                 }
             });
         }
@@ -2271,7 +2300,7 @@ function addServiceChangeRow() {
     
     serviceChangeRows.push(newRow);
     updateServiceChangesContainer();
-    triggerSave();
+    triggerSaveDebounced();
 }
 
 function removeServiceChangeRow(rowId) {
@@ -2281,7 +2310,7 @@ function removeServiceChangeRow(rowId) {
         row.index = index + 1;
     });
     updateServiceChangesContainer();
-    triggerSave();
+    triggerSaveDebounced();
 }
 
 function updateServiceChangesContainer() {
@@ -2320,7 +2349,7 @@ function updateServiceChangesContainer() {
             const rowIndex = serviceChangeRows.findIndex(row => row.id === rowId);
             if (rowIndex !== -1) {
                 serviceChangeRows[rowIndex].description = value;
-                triggerSave();
+                triggerSaveDebounced();
             }
         });
     });
@@ -2351,7 +2380,7 @@ function addIncidentRow() {
     };
     incidentsRows.push(newRow);
     updateIncidentsContainer();
-    triggerSave();
+    triggerSaveDebounced();
 }
 
 function removeIncidentRow(rowId) {
