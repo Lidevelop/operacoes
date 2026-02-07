@@ -417,6 +417,8 @@ async function deleteEventType(type) {
             eventTypeModalError.textContent = 'Não foi possível excluir o tipo de evento.';
         }
     }
+}
+
 // Debounce utilitário para evitar múltiplos saves em sequência
 function debounce(func, wait) {
     let timeout;
@@ -430,7 +432,7 @@ function debounce(func, wait) {
 const triggerSaveDebounced = debounce(triggerSave, 2000); // 2 segundos
 
 // Exemplo: onde houver triggerSave(), troque por triggerSaveDebounced() nos pontos de autosave
-}
+
 
 function setOperationNumber(sequence, year) {
     if (!operationNumberInput) return;
