@@ -30,6 +30,11 @@ async function bootstrapApp() {
         await loadScriptSequential('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js');
         await loadScriptSequential('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js');
         await loadScriptSequential('script.js');
+        if (typeof window.startApp === 'function') {
+            window.startApp();
+        } else {
+            throw new Error('Inicializador startApp não encontrado.');
+        }
     } catch (error) {
         console.error(error);
         document.body.innerHTML = '<p style="padding:16px;font-family:Arial, sans-serif;">Erro ao carregar o sistema. Atualize a página.</p>';

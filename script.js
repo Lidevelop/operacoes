@@ -218,6 +218,13 @@ const CLASSE_OPTIONS = [
 
 const EVENT_TYPES_COLLECTION = 'settings';
 const EVENT_TYPES_DOC_ID = 'eventTypes';
+const OPERATION_COUNTER_COLLECTION = 'counters';
+const OPERATION_COUNTER_DOC_PREFIX = 'operations_';
+const RESERVED_OPERATION_KEY = 'pmaracaju_reserved_operation_number';
+const OPERATION_COUNTER_MIGRATION_KEY = 'pmaracaju_operation_counter_migrated_at';
+let operationCounterInitPromise = null;
+const FORM_STORAGE_KEY = 'pmaracaju_operation_form_v2';
+const LEGACY_FORM_STORAGE_KEY = 'policiaMunicipalOperacaoForm';
 const SUMMARY_TEMPLATE_TEXT = `Durante o período programado, as equipes da Polícia Municipal estiveram presentes no local designado, realizando patrulhamento preventivo e acompanhamento das atividades relacionadas ao evento/operação. As ações foram executadas conforme o planejamento estabelecido, com foco na preservação da ordem pública, na segurança dos participantes e na proteção do patrimônio.
 
 Foram realizadas rondas periódicas, orientações ao público quando necessário e monitoramento contínuo das áreas relatadas. Não houve intercorrências relevantes. As ocorrências registradas nas seções anteriores do relatório, quando existentes, foram devidamente atendidas e solucionadas pela equipe no local.
@@ -244,6 +251,10 @@ function normalizeEventType(value) {
 
 function renderEventTypeOptions(items, selectedValue = '') {
     if (!eventTypeSelect) return;
+    const pendingValue = eventTypeSelect.dataset.pendingValue || '';
+    if (pendingValue && !selectedValue) {
+        selectedValue = pendingValue;
+    }
     const normalizedSelected = normalizeEventType(selectedValue);
     const uniqueItems = Array.from(new Set((items || []).map(normalizeEventType).filter(Boolean)));
     if (normalizedSelected && !uniqueItems.includes(normalizedSelected)) {
@@ -257,6 +268,10 @@ function renderEventTypeOptions(items, selectedValue = '') {
         options.push(`<option value="${option}"${isSelected}>${option}</option>`);
     });
     eventTypeSelect.innerHTML = options.join('');
+    if (pendingValue) {
+        eventTypeSelect.value = pendingValue;
+        delete eventTypeSelect.dataset.pendingValue;
+    }
 }
 
 function renderEventTypeModalList() {
@@ -442,6 +457,355 @@ function setOperationNumber(sequence, year) {
     operationNumberInput.dataset.year = String(year);
 }
 
+function formatOperationNumber(sequence, year) {
+    return `${String(sequence).padStart(4, '0')}/${year}`;
+}
+
+function getFormInputValues() {
+    const values = {};
+    formInputs.forEach(input => {
+        if (!input.id) return;
+        if (input.type === 'checkbox') {
+            values[input.id] = input.checked;
+        } else {
+            values[input.id] = input.value;
+        }
+    });
+    return values;
+}
+
+function applyFormInputValues(values) {
+    if (!values || typeof values !== 'object') return;
+    formInputs.forEach(input => {
+        if (!input.id || !(input.id in values)) return;
+        const stored = values[input.id];
+        if (input.type === 'checkbox') {
+            input.checked = Boolean(stored);
+        } else if (stored !== null && stored !== undefined) {
+            input.value = String(stored);
+        }
+    });
+
+    if (eventTypeSelect && values.eventType) {
+        eventTypeSelect.dataset.pendingValue = values.eventType;
+    }
+}
+
+function buildFormState() {
+    return {
+        version: 2,
+        savedAt: Date.now(),
+        inputs: getFormInputValues(),
+        areaRows: Array.isArray(areaRows) ? areaRows.map(row => ({ ...row })) : [],
+        vehicleRows: Array.isArray(vehicleRows) ? vehicleRows.map(row => ({ ...row })) : [],
+        serviceChangeRows: Array.isArray(serviceChangeRows) ? serviceChangeRows.map(row => ({ ...row })) : [],
+        incidentsRows: Array.isArray(incidentsRows) ? incidentsRows.map(row => ({ ...row })) : [],
+        currentOperationId: currentOperationId || null
+    };
+}
+
+function syncAreaRowsFromDom() {
+    const rowsById = new Map();
+
+    const tableInputs = document.querySelectorAll('#areaTableBody .area-input');
+    const cardInputs = document.querySelectorAll('#areaCardsContainer .card-input');
+    const inputsToUse = tableInputs.length > 0 ? tableInputs : cardInputs;
+
+    inputsToUse.forEach(input => {
+        const rowId = input.getAttribute('data-id');
+        const field = input.getAttribute('data-field');
+        if (!rowId || !field) return;
+        if (!rowsById.has(rowId)) {
+            rowsById.set(rowId, { id: parseInt(rowId, 10) || Date.now(), area: '', agents: '', post: '' });
+        }
+        const row = rowsById.get(rowId);
+        row[field] = input.value;
+    });
+
+    if (rowsById.size > 0) {
+        areaRows = Array.from(rowsById.values());
+    }
+}
+
+function syncServiceChangesFromDom() {
+    const rowsById = new Map();
+    serviceChangeRows.forEach(row => {
+        rowsById.set(String(row.id), { ...row });
+    });
+
+    document.querySelectorAll('#serviceChangesContainer .service-change-textarea').forEach(textarea => {
+        const rowId = textarea.getAttribute('data-id');
+        if (!rowId) return;
+        if (!rowsById.has(rowId)) {
+            rowsById.set(rowId, { id: parseInt(rowId, 10), description: '' });
+        }
+        const row = rowsById.get(rowId);
+        row.description = textarea.value;
+    });
+
+    serviceChangeRows = Array.from(rowsById.values()).map((row, index) => ({
+        ...row,
+        index: index + 1
+    }));
+}
+
+function syncIncidentsFromDom() {
+    const rowsById = new Map();
+    incidentsRows.forEach(row => {
+        rowsById.set(String(row.id), { ...row });
+    });
+
+    document.querySelectorAll('#incidentsContainer .incident-textarea').forEach(textarea => {
+        const rowId = textarea.getAttribute('data-id');
+        if (!rowId) return;
+        if (!rowsById.has(rowId)) {
+            rowsById.set(rowId, { id: parseInt(rowId, 10), description: '', vtr: '' });
+        }
+        const row = rowsById.get(rowId);
+        row.description = textarea.value;
+    });
+
+    document.querySelectorAll('#incidentsContainer .incident-vtr-select').forEach(select => {
+        const rowId = select.getAttribute('data-id');
+        if (!rowId) return;
+        if (!rowsById.has(rowId)) {
+            rowsById.set(rowId, { id: parseInt(rowId, 10), description: '', vtr: '' });
+        }
+        const row = rowsById.get(rowId);
+        row.vtr = select.value;
+    });
+
+    incidentsRows = Array.from(rowsById.values());
+}
+
+function syncDynamicRowsFromDom() {
+    syncAreaRowsFromDom();
+    syncServiceChangesFromDom();
+    syncIncidentsFromDom();
+}
+
+function applyFormState(state) {
+    if (!state || typeof state !== 'object') return;
+
+    if (state.inputs) {
+        applyFormInputValues(state.inputs);
+    }
+
+    if (Array.isArray(state.areaRows) && state.areaRows.length > 0) {
+        areaRows = state.areaRows.map(row => ({
+            id: row.id || Date.now(),
+            area: row.area || '',
+            agents: row.agents || '',
+            post: row.post || row.vehicle || ''
+        }));
+    }
+
+    if (Array.isArray(state.vehicleRows) && state.vehicleRows.length > 0) {
+        vehicleRows = state.vehicleRows.map(row => ({
+            id: row.id || Date.now(),
+            prefix: row.prefix || '',
+            post: row.post || '',
+            type: row.type || ''
+        }));
+    }
+
+    if (Array.isArray(state.serviceChangeRows)) {
+        serviceChangeRows = state.serviceChangeRows.map((row, index) => ({
+            id: row.id || Date.now(),
+            description: row.description || '',
+            index: index + 1
+        }));
+    }
+
+    if (Array.isArray(state.incidentsRows)) {
+        incidentsRows = state.incidentsRows.map(row => ({
+            id: row.id || Date.now(),
+            description: row.description || '',
+            vtr: row.vtr || ''
+        }));
+    }
+
+    updateAreaTable();
+    updateAreaCards();
+    updateVehiclesTable();
+    updateVehiclesCards();
+    updateServiceChangesContainer();
+    updateIncidentsContainer();
+    updateTotalAgentsCount();
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(expandAllTextareas);
+    });
+}
+
+function isOperationNumberValid(value) {
+    return /^\d{4}\/\d{4}$/.test((value || '').trim());
+}
+
+function parseOperationNumber(value) {
+    const match = String(value || '').trim().match(/^(\d{4})\/(\d{4})$/);
+    if (!match) {
+        return { sequence: null, year: null };
+    }
+    return {
+        sequence: parseInt(match[1], 10),
+        year: parseInt(match[2], 10)
+    };
+}
+
+function getReservedOperationNumber() {
+    const raw = localStorage.getItem(RESERVED_OPERATION_KEY);
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || !isOperationNumberValid(parsed.number)) return null;
+        const details = parseOperationNumber(parsed.number);
+        if (!details.sequence || !details.year) return null;
+        return {
+            number: parsed.number,
+            sequence: details.sequence,
+            year: details.year
+        };
+    } catch (error) {
+        return null;
+    }
+}
+
+function setReservedOperationNumber({ sequence, year }) {
+    if (!sequence || !year) return;
+    const number = `${String(sequence).padStart(4, '0')}/${year}`;
+    localStorage.setItem(RESERVED_OPERATION_KEY, JSON.stringify({
+        number,
+        reservedAt: Date.now()
+    }));
+}
+
+function clearReservedOperationNumber() {
+    localStorage.removeItem(RESERVED_OPERATION_KEY);
+}
+
+async function initializeOperationCountersFromExisting() {
+    if (!db || !auth || !auth.currentUser) return;
+    if (operationCounterInitPromise) {
+        await operationCounterInitPromise;
+        return;
+    }
+    operationCounterInitPromise = (async () => {
+    const lastRun = parseInt(localStorage.getItem(OPERATION_COUNTER_MIGRATION_KEY), 10);
+    if (!Number.isNaN(lastRun) && Date.now() - lastRun < 10 * 60 * 1000) {
+        return;
+    }
+
+    const perYearMax = new Map();
+    try {
+        const snapshot = await db.collection('operations').get();
+        snapshot.forEach(doc => {
+            const data = doc.data() || {};
+            let year = parseInt(data.operationYear, 10);
+            let sequence = parseInt(data.operationSequence, 10);
+            if (Number.isNaN(year) || Number.isNaN(sequence)) {
+                const parsed = parseOperationNumber(data.operationNumber);
+                if (Number.isNaN(year)) year = parsed.year;
+                if (Number.isNaN(sequence)) sequence = parsed.sequence;
+            }
+            if (!year || !sequence) return;
+            const current = perYearMax.get(year) || 0;
+            if (sequence > current) {
+                perYearMax.set(year, sequence);
+            }
+        });
+    } catch (error) {
+        console.error('Erro ao inicializar contador das operações:', error);
+        return;
+    }
+
+    for (const [year, maxSequence] of perYearMax.entries()) {
+        const counterRef = db.collection(OPERATION_COUNTER_COLLECTION).doc(`${OPERATION_COUNTER_DOC_PREFIX}${year}`);
+        try {
+            await db.runTransaction(async (transaction) => {
+                const snapshot = await transaction.get(counterRef);
+                let stored = 0;
+                if (snapshot.exists) {
+                    const data = snapshot.data() || {};
+                    const parsed = parseInt(data.lastSequence, 10);
+                    if (!Number.isNaN(parsed)) stored = parsed;
+                }
+                const nextValue = Math.max(stored, maxSequence);
+                if (!snapshot.exists || nextValue !== stored) {
+                    transaction.set(counterRef, {
+                        lastSequence: nextValue,
+                        year,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
+                }
+            });
+        } catch (error) {
+            console.error('Erro ao atualizar contador da operação:', error);
+        }
+    }
+
+    localStorage.setItem(OPERATION_COUNTER_MIGRATION_KEY, String(Date.now()));
+    })();
+    await operationCounterInitPromise;
+}
+
+async function getMaxSequenceFromOperations(year) {
+    if (!db) return 0;
+    let maxSequence = 0;
+    try {
+        const snapshot = await db.collection('operations').get();
+        snapshot.forEach(doc => {
+            const data = doc.data() || {};
+            let parsedYear = parseInt(data.operationYear, 10);
+            let parsedSequence = parseInt(data.operationSequence, 10);
+            if (Number.isNaN(parsedYear) || Number.isNaN(parsedSequence)) {
+                const parsed = parseOperationNumber(data.operationNumber);
+                if (Number.isNaN(parsedYear)) parsedYear = parsed.year;
+                if (Number.isNaN(parsedSequence)) parsedSequence = parsed.sequence;
+            }
+            if (parsedYear === year && parsedSequence && parsedSequence > maxSequence) {
+                maxSequence = parsedSequence;
+            }
+        });
+    } catch (error) {
+        console.error('Erro ao consultar operações para contador:', error);
+    }
+    return maxSequence;
+}
+
+function getMaxSequenceFromCache(targetYear) {
+    let maxSequence = 0;
+    operationsCache.forEach(operation => {
+        const rawYear = operation?.operationYear;
+        const parsedYear = Number.isNaN(parseInt(rawYear, 10)) ? null : parseInt(rawYear, 10);
+        let sequence = parseInt(operation?.operationSequence, 10);
+        if (Number.isNaN(sequence)) sequence = null;
+
+        let resolvedYear = parsedYear;
+        if (!resolvedYear || Number.isNaN(resolvedYear) || !sequence) {
+            const parsed = parseOperationNumber(operation?.operationNumber);
+            if (!resolvedYear) resolvedYear = parsed.year;
+            if (!sequence) sequence = parsed.sequence;
+        }
+
+        if (resolvedYear === targetYear && sequence && sequence > maxSequence) {
+            maxSequence = sequence;
+        }
+    });
+    return maxSequence;
+}
+
+function shouldAssignOperationNumber() {
+    if (!operationNumberInput) return false;
+    const currentValue = (operationNumberInput.value || '').trim();
+    if (!currentValue) return true;
+    if (!isOperationNumberValid(currentValue)) return true;
+    const parsed = parseOperationNumber(currentValue);
+    if (!parsed.year) return true;
+    if (!currentOperationId && parsed.year !== getOperationYearForNew()) return true;
+    return false;
+}
+
 function getOperationNumberMeta() {
     if (!operationNumberInput) {
         return { number: '', sequence: null, year: null };
@@ -450,11 +814,9 @@ function getOperationNumberMeta() {
     let sequence = parseInt(operationNumberInput.dataset.sequence, 10);
     let year = parseInt(operationNumberInput.dataset.year, 10);
     if (Number.isNaN(sequence) || Number.isNaN(year)) {
-        const match = number.match(/^(\d{4})\/(\d{4})$/);
-        if (match) {
-            sequence = parseInt(match[1], 10);
-            year = parseInt(match[2], 10);
-        }
+        const parsed = parseOperationNumber(number);
+        sequence = parsed.sequence;
+        year = parsed.year;
     }
     return {
         number,
@@ -472,26 +834,113 @@ function getOperationYearForNew() {
     return new Date().getFullYear();
 }
 
-async function assignNextOperationNumber() {
-    if (!db || !operationNumberInput) return;
-    if (operationNumberInput.value && operationNumberInput.value.trim() !== '') return;
+async function reserveNextOperationSequence(year) {
+    if (!db) return null;
+    const counterRef = db.collection(OPERATION_COUNTER_COLLECTION).doc(`${OPERATION_COUNTER_DOC_PREFIX}${year}`);
+    let baseSequence = getMaxSequenceFromCache(year);
+
+    if (baseSequence === 0) {
+        baseSequence = await getMaxSequenceFromOperations(year);
+    }
+
+    try {
+        const nextSequence = await db.runTransaction(async (transaction) => {
+            const snapshot = await transaction.get(counterRef);
+            let lastSequence = baseSequence;
+            if (snapshot.exists) {
+                const data = snapshot.data() || {};
+                const stored = parseInt(data.lastSequence, 10);
+                if (!Number.isNaN(stored) && stored > lastSequence) {
+                    lastSequence = stored;
+                }
+            }
+            const next = lastSequence + 1;
+            transaction.set(counterRef, {
+                lastSequence: next,
+                year,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            return next;
+        });
+        return nextSequence;
+    } catch (error) {
+        console.error('Erro ao reservar número da operação:', error);
+        return baseSequence > 0 ? baseSequence + 1 : null;
+    }
+}
+
+async function assignNextOperationNumber({ forceReserve = false } = {}) {
+    if (!db || !operationNumberInput) return false;
+    if (currentOperationId) {
+        const currentValue = (operationNumberInput.value || '').trim();
+        if (currentValue && isOperationNumberValid(currentValue)) {
+            return false;
+        }
+    }
 
     const year = getOperationYearForNew();
-    let maxSequence = 0;
-    try {
-        const snapshot = await db.collection('operations').where('operationYear', '==', year).get();
-        snapshot.forEach(doc => {
-            const data = doc.data() || {};
-            const sequence = parseInt(data.operationSequence, 10) || 0;
-            if (sequence > maxSequence) {
-                maxSequence = sequence;
-            }
-        });
-    } catch (error) {
-        console.error('Erro ao gerar número da operação:', error);
+    const reserved = getReservedOperationNumber();
+    if (reserved && reserved.year !== year) {
+        clearReservedOperationNumber();
     }
-    const nextSequence = maxSequence + 1;
+
+    if (!forceReserve) return false;
+
+    const nextSequence = await reserveNextOperationSequence(year);
+    if (!nextSequence) return false;
     setOperationNumber(nextSequence, year);
+    setReservedOperationNumber({ sequence: nextSequence, year });
+    return true;
+}
+
+async function ensureOperationNumberForSave() {
+    if (!operationNumberInput) return;
+    await loadNextOperationNumberPreview();
+    const currentValue = (operationNumberInput.value || '').trim();
+    if (!currentValue) {
+        const year = getOperationYearForNew();
+        setOperationNumber(1, year);
+        return;
+    }
+    if (!isOperationNumberValid(currentValue)) {
+        const parsed = parseOperationNumber(currentValue);
+        if (parsed.sequence && parsed.year) {
+            setOperationNumber(parsed.sequence, parsed.year);
+        }
+    }
+}
+
+async function loadNextOperationNumberPreview() {
+    if (!db || !operationNumberInput) return;
+    if (currentOperationId) return;
+    const year = getOperationYearForNew();
+    let nextValue = 1;
+    const maxExisting = await getMaxSequenceFromOperations(year);
+    try {
+        const counterSnap = await db
+            .collection(OPERATION_COUNTER_COLLECTION)
+            .doc(`${OPERATION_COUNTER_DOC_PREFIX}${year}`)
+            .get();
+        if (counterSnap.exists) {
+            const data = counterSnap.data() || {};
+            const stored = parseInt(data.lastSequence ?? data.current, 10);
+            if (!Number.isNaN(stored)) {
+                nextValue = Math.max(stored, maxExisting) + 1;
+            } else {
+                nextValue = maxExisting + 1;
+            }
+        } else {
+            nextValue = maxExisting + 1;
+        }
+    } catch (error) {
+        console.error('Erro ao carregar próximo número da operação:', error);
+        nextValue = maxExisting + 1;
+    }
+
+    if (!Number.isFinite(nextValue) || nextValue <= 0) {
+        nextValue = 1;
+    }
+    setOperationNumber(nextValue, year);
 }
 
 // Initialize with default rows
@@ -505,16 +954,15 @@ function bootApp() {
     if (eventTypeSelect) {
         eventTypeSelect.value = '';
     }
-    assignNextOperationNumber();
-
-    // Load saved data
-    loadFormData();
 
     // Add initial rows if none loaded
     if (areaRows.length === 0) addAreaRow();
     if (vehicleRows.length === 0) addVehicleRow();
     if (serviceChangeRows.length === 0) updateServiceChangesContainer();
     if (incidentsRows.length === 0) updateIncidentsContainer();
+
+    // Load saved data after base rows are ready
+    loadFormData();
 
     // Update time display
     updateLastSavedTime();
@@ -530,11 +978,13 @@ function bootApp() {
     initializeIdleWatcher();
 }
 
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bootApp);
-} else {
+function startApp() {
+    if (window.__appInitialized) return;
+    window.__appInitialized = true;
     bootApp();
 }
+
+window.startApp = startApp;
 
 function initFirebase() {
     if (!window.firebase) {
@@ -560,7 +1010,7 @@ function initFirebase() {
             loadOperationsList();
             initializeUserProfileFlow(user);
             loadEventTypes();
-            assignNextOperationNumber();
+            initializeOperationCountersFromExisting();
             if (deadline) {
                 sessionPrompted = false;
                 startSessionCountdown();
@@ -579,6 +1029,12 @@ function initializeEventListeners() {
     // Save on input with debounce
     formInputs.forEach(input => {
         input.addEventListener('input', () => {
+            if (input.classList.contains('field-error') && input.value.trim() !== '') {
+                input.classList.remove('field-error');
+            }
+            triggerSaveDebounced();
+        });
+        input.addEventListener('change', () => {
             if (input.classList.contains('field-error') && input.value.trim() !== '') {
                 input.classList.remove('field-error');
             }
@@ -634,6 +1090,7 @@ function initializeEventListeners() {
     // Save to Firebase explicitly
     saveDbBtn.addEventListener('click', async () => {
         if (!auth || !auth.currentUser) return;
+        await ensureOperationNumberForSave();
         if (!validateVehicleDistribution()) {
             saveStatus.textContent = 'Distribua os agentes por viatura antes de salvar.';
             return;
@@ -651,7 +1108,6 @@ function initializeEventListeners() {
             return;
         }
         saveStatus.textContent = 'Salvando no Firebase...';
-        await assignNextOperationNumber();
         const formData = getFormData();
         const savedId = await saveOperationToFirebase(formData);
         if (savedId) {
@@ -719,7 +1175,6 @@ function initializeEventListeners() {
     const operationDateInput = document.getElementById('operationDate');
     operationDateInput.addEventListener('change', () => {
         enforceEditWindow();
-        assignNextOperationNumber();
     });
 
     // App navigation
@@ -752,6 +1207,14 @@ function initializeEventListeners() {
         input.addEventListener('change', () => {
             applyLogsFilter();
         });
+    });
+
+    window.addEventListener('beforeunload', () => {
+        try {
+            saveFormData();
+        } catch (error) {
+            console.error('Erro ao salvar antes de recarregar:', error);
+        }
     });
 
     if (logsLimit) {
@@ -1978,6 +2441,22 @@ function buildPostOptions(selectedValue, currentRowId) {
     return options.join('');
 }
 
+function refreshAreaPostOptions() {
+    const selects = document.querySelectorAll(
+        '#areaTableBody select[data-field="post"], #areaCardsContainer select[data-field="post"]'
+    );
+
+    selects.forEach(select => {
+        const rowId = parseInt(select.getAttribute('data-id'), 10);
+        const row = areaRows.find(item => item.id === rowId);
+        const selectedValue = row ? (row.post || row.vehicle || '') : select.value;
+        select.innerHTML = buildPostOptions(selectedValue, rowId);
+        if (selectedValue) {
+            select.value = selectedValue;
+        }
+    });
+}
+
 // AREA DISTRIBUTION FUNCTIONS
 function addAreaRow() {
     const rowId = Date.now();
@@ -2182,6 +2661,9 @@ function updateVehiclesTable() {
                 const rowIndex = vehicleRows.findIndex(row => row.id === rowId);
                 if (rowIndex !== -1) {
                     vehicleRows[rowIndex][field] = value;
+                    if (field === 'prefix' || field === 'post') {
+                        refreshAreaPostOptions();
+                    }
                     triggerSaveDebounced();
                 }
             });
@@ -2194,6 +2676,9 @@ function updateVehiclesTable() {
                 const rowIndex = vehicleRows.findIndex(row => row.id === rowId);
                 if (rowIndex !== -1) {
                     vehicleRows[rowIndex][field] = value;
+                    if (field === 'prefix' || field === 'post') {
+                        refreshAreaPostOptions();
+                    }
                     triggerSaveDebounced();
                 }
             });
@@ -2207,8 +2692,7 @@ function updateVehiclesTable() {
         });
     });
 
-    updateAreaTable();
-    updateAreaCards();
+    refreshAreaPostOptions();
 }
 
 function updateVehiclesCards() {
@@ -2260,6 +2744,9 @@ function updateVehiclesCards() {
                 const rowIndex = vehicleRows.findIndex(row => row.id === rowId);
                 if (rowIndex !== -1) {
                     vehicleRows[rowIndex][field] = value;
+                    if (field === 'prefix' || field === 'post') {
+                        refreshAreaPostOptions();
+                    }
                     triggerSaveDebounced();
                 }
             });
@@ -2272,6 +2759,9 @@ function updateVehiclesCards() {
                 const rowIndex = vehicleRows.findIndex(row => row.id === rowId);
                 if (rowIndex !== -1) {
                     vehicleRows[rowIndex][field] = value;
+                    if (field === 'prefix' || field === 'post') {
+                        refreshAreaPostOptions();
+                    }
                     triggerSaveDebounced();
                 }
             });
@@ -2285,8 +2775,7 @@ function updateVehiclesCards() {
         });
     });
 
-    updateAreaTable();
-    updateAreaCards();
+    refreshAreaPostOptions();
 }
 
 // SERVICE CHANGES FUNCTIONS
@@ -2474,6 +2963,7 @@ function getFormData() {
         .filter(Boolean)
         .join('\n\n');
     return {
+        formValues: getFormInputValues(),
         operationNumber: operationNumberMeta.number,
         operationSequence: operationNumberMeta.sequence,
         operationYear: operationNumberMeta.year,
@@ -2491,15 +2981,20 @@ function getFormData() {
         totalAgents: document.getElementById('totalAgents').textContent,
         incidents: incidentsText,
         incidentsRows: incidentsRows,
+        incidentsNoChange: Boolean(incidentsNoChange && incidentsNoChange.checked),
         summary: document.getElementById('summary').value,
         areaRows: areaRows,
         vehicleRows: vehicleRows,
         serviceChangeRows: serviceChangeRows,
+        serviceChangesNoChange: Boolean(serviceChangesNoChange && serviceChangesNoChange.checked),
         lastSaved: new Date().toISOString()
     };
 }
 
 function applyFormData(formData) {
+    const incidentsNoChangeValue = Boolean(formData.incidentsNoChange);
+    const serviceChangesNoChangeValue = Boolean(formData.serviceChangesNoChange);
+    applyFormInputValues(formData.formValues);
     if (operationNumberInput) {
         operationNumberInput.value = formData.operationNumber || '';
         if (formData.operationSequence) {
@@ -2566,6 +3061,10 @@ function applyFormData(formData) {
         updateServiceChangesContainer();
     }
 
+    if (serviceChangeRows.length === 0 && serviceChangesNoChange) {
+        serviceChangesNoChange.checked = serviceChangesNoChangeValue;
+    }
+
     if (formData.incidentsRows && formData.incidentsRows.length > 0) {
         incidentsRows = formData.incidentsRows.map(row => ({
             ...row,
@@ -2580,25 +3079,26 @@ function applyFormData(formData) {
         updateIncidentsContainer();
     }
 
+    if (incidentsRows.length === 0 && incidentsNoChange) {
+        incidentsNoChange.checked = incidentsNoChangeValue;
+    }
+
     updateTotalAgentsCount();
 
     requestAnimationFrame(() => {
         requestAnimationFrame(expandAllTextareas);
     });
 
-    assignNextOperationNumber();
     enforceEditWindow();
     updateSummaryTemplateState();
+    loadNextOperationNumberPreview();
 }
 
 // Save form data to localStorage
 function saveFormData() {
-    const formData = getFormData();
-    
-    // Save to localStorage
-    localStorage.setItem('policiaMunicipalOperacaoForm', JSON.stringify(formData));
-    
-    // Update UI
+    syncDynamicRowsFromDom();
+    const state = buildFormState();
+    localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(state));
     updateLastSavedTime();
     saveIndicator.classList.remove('saving');
     isSaving = false;
@@ -2607,23 +3107,33 @@ function saveFormData() {
 
 // Load form data from localStorage
 function loadFormData() {
-    const savedData = localStorage.getItem('policiaMunicipalOperacaoForm');
-    
-    if (savedData) {
-        try {
-            const formData = JSON.parse(savedData);
-            
-            applyFormData(formData);
-            
-            // Update last saved time
-            if (formData.lastSaved) {
-                const lastSavedDate = new Date(formData.lastSaved);
-                lastSaved.textContent = `Último salvamento: ${formatTime(lastSavedDate)}`;
+    let savedData = localStorage.getItem(FORM_STORAGE_KEY);
+    if (!savedData) {
+        const legacy = localStorage.getItem(LEGACY_FORM_STORAGE_KEY);
+        if (legacy) {
+            try {
+                const formData = JSON.parse(legacy);
+                applyFormData(formData);
+                localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(buildFormState()));
+                if (formData.lastSaved) {
+                    const lastSavedDate = new Date(formData.lastSaved);
+                    lastSaved.textContent = `Último salvamento: ${formatTime(lastSavedDate)}`;
+                }
+            } catch (e) {
+                console.error('Erro ao carregar dados salvos (legacy):', e);
             }
-            
-        } catch (e) {
-            console.error('Erro ao carregar dados salvos:', e);
         }
+        return;
+    }
+    try {
+        const state = JSON.parse(savedData);
+        applyFormState(state);
+        if (state.savedAt) {
+            const lastSavedDate = new Date(state.savedAt);
+            lastSaved.textContent = `Último salvamento: ${formatTime(lastSavedDate)}`;
+        }
+    } catch (e) {
+        console.error('Erro ao carregar dados salvos:', e);
     }
 }
 
@@ -2656,14 +3166,52 @@ async function saveOperationToFirebase(formData) {
             docRef = operationsRef.doc(currentOperationId);
             const previousSnap = await docRef.get();
             previousData = previousSnap.exists ? previousSnap.data() : null;
+            await docRef.set(payload, { merge: true });
         } else {
             docRef = operationsRef.doc();
-            currentOperationId = docRef.id;
-            payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-            payload.createdBy = userInfo;
-        }
+            const year = getOperationYearForNew();
+            const maxExisting = await getMaxSequenceFromOperations(year);
+            let generatedNumber = '';
+            let generatedSequence = null;
 
-        await docRef.set(payload, { merge: true });
+            await db.runTransaction(async (transaction) => {
+                const counterRef = db
+                    .collection(OPERATION_COUNTER_COLLECTION)
+                    .doc(`${OPERATION_COUNTER_DOC_PREFIX}${year}`);
+                const counterSnap = await transaction.get(counterRef);
+                let currentValue = 0;
+                if (counterSnap.exists) {
+                    const data = counterSnap.data() || {};
+                    const stored = parseInt(data.lastSequence ?? data.current, 10);
+                    if (!Number.isNaN(stored)) currentValue = stored;
+                }
+
+                const nextValue = Math.max(currentValue, maxExisting) + 1;
+                generatedSequence = nextValue;
+                generatedNumber = formatOperationNumber(nextValue, year);
+
+                transaction.set(counterRef, {
+                    lastSequence: nextValue,
+                    year,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                transaction.set(docRef, {
+                    ...payload,
+                    operationNumber: generatedNumber,
+                    operationSequence: generatedSequence,
+                    operationYear: year,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    createdBy: userInfo
+                });
+            });
+
+            currentOperationId = docRef.id;
+            if (operationNumberInput && generatedNumber) {
+                operationNumberInput.value = generatedNumber;
+                operationNumberInput.dataset.sequence = String(generatedSequence || '');
+                operationNumberInput.dataset.year = String(year);
+            }
+        }
         if (previousData) {
             const changedFields = getChangedOperationFields(previousData, payload);
             if (changedFields.length > 0) {
@@ -2951,6 +3499,7 @@ function clearForm() {
         operationNumberInput.dataset.sequence = '';
         operationNumberInput.dataset.year = '';
     }
+    clearReservedOperationNumber();
     
     // Clear date/time fields explicitly
     document.getElementById('operationDate').value = '';
@@ -2988,7 +3537,7 @@ function clearForm() {
     updateTotalAgentsCount();
     
     // Clear localStorage
-    localStorage.removeItem('policiaMunicipalOperacaoForm');
+    localStorage.removeItem(FORM_STORAGE_KEY);
     currentOperationId = null;
     
     // Close modal
