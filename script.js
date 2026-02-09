@@ -50,6 +50,11 @@ const OPERATIONS_PAGE_SIZE = 5;
 let operationsCurrentPage = 1;
 const USERS_PAGE_SIZE = 8;
 let usersCurrentPage = 1;
+const LOGS_PAGE_SIZE = 20;
+const LOGS_FETCH_LIMIT = 200;
+let logsCurrentPage = 1;
+const LOGS_CACHE_TTL = 2 * 60 * 1000; // 2 minutos
+const LOGIN_MARKER_KEY = 'pmaracaju_login_marker';
 
 // DOM Elements
 const loginView = document.getElementById('loginView');
@@ -116,9 +121,9 @@ const insertSummaryTemplateBtn = document.getElementById('insertSummaryTemplateB
 const summaryTemplateWarning = document.getElementById('summaryTemplateWarning');
 const summaryTemplateInfo = document.getElementById('summaryTemplateInfo');
 const logsTableBody = document.getElementById('logsTableBody');
+const logsPagination = document.getElementById('logsPagination');
 const logsDateFrom = document.getElementById('logsDateFrom');
 const logsDateTo = document.getElementById('logsDateTo');
-const logsLimit = document.getElementById('logsLimit');
 const logsClearBtn = document.getElementById('logsClearBtn');
 const logsFilterAll = document.getElementById('logsFilterAll');
 const logsFilterAccess = document.getElementById('logsFilterAccess');
@@ -202,8 +207,8 @@ let currentOperationMeta = null;
 let editingUserId = null;
 let logsCache = [];
 let isLoadingLogs = false;
-let logsCurrentLimit = 100;
 let logsActionFilter = 'all';
+let logsCacheTimestamp = 0;
 let eventTypesCache = [];
 let eventTypesCacheTimestamp = 0;
 const EVENT_TYPES_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
@@ -1008,7 +1013,8 @@ function initFirebase() {
             }
             showAppView();
             loadOperationsList();
-            initializeUserProfileFlow(user);
+            const shouldRegisterAccess = consumeLoginMarker();
+            initializeUserProfileFlow(user, shouldRegisterAccess);
             loadEventTypes();
             initializeOperationCountersFromExisting();
             if (deadline) {
@@ -1021,6 +1027,7 @@ function initFirebase() {
             showLoginView();
             resetUserProfileState();
             clearSessionDeadline();
+            clearLoginMarker();
         }
     });
 }
@@ -1196,7 +1203,8 @@ function initializeEventListeners() {
         viewLogsBtn.addEventListener('click', () => {
             if (isAdmin) {
                 setActiveAppView('logs');
-                loadLogsList(true);
+                logsCurrentPage = 1;
+                loadLogsList(false);
             }
             closeAdminMenu();
         });
@@ -1205,6 +1213,7 @@ function initializeEventListeners() {
     [logsDateFrom, logsDateTo].forEach(input => {
         if (!input) return;
         input.addEventListener('change', () => {
+            logsCurrentPage = 1;
             applyLogsFilter();
         });
     });
@@ -1217,51 +1226,52 @@ function initializeEventListeners() {
         }
     });
 
-    if (logsLimit) {
-        logsLimit.addEventListener('change', () => {
-            const value = parseInt(logsLimit.value, 10);
-            logsCurrentLimit = Number.isNaN(value) ? 100 : value;
-            loadLogsList(true);
-        });
-    }
-
     if (logsClearBtn) {
         logsClearBtn.addEventListener('click', () => {
             if (logsDateFrom) logsDateFrom.value = '';
             if (logsDateTo) logsDateTo.value = '';
-            if (logsLimit) logsLimit.value = '100';
-            logsCurrentLimit = 100;
-            loadLogsList(true);
+            logsActionFilter = 'all';
+            logsCurrentPage = 1;
+            if (logsCache.length > 0) {
+                applyLogsFilter();
+            } else {
+                loadLogsList(true);
+            }
         });
     }
 
     if (logsFilterAll) {
         logsFilterAll.addEventListener('click', () => {
             logsActionFilter = 'all';
+            logsCurrentPage = 1;
             applyLogsFilter();
         });
     }
     if (logsFilterAccess) {
         logsFilterAccess.addEventListener('click', () => {
             logsActionFilter = 'access';
+            logsCurrentPage = 1;
             applyLogsFilter();
         });
     }
     if (logsFilterReport) {
         logsFilterReport.addEventListener('click', () => {
             logsActionFilter = 'report';
+            logsCurrentPage = 1;
             applyLogsFilter();
         });
     }
     if (logsFilterUpdate) {
         logsFilterUpdate.addEventListener('click', () => {
             logsActionFilter = 'update';
+            logsCurrentPage = 1;
             applyLogsFilter();
         });
     }
     if (logsFilterDelete) {
         logsFilterDelete.addEventListener('click', () => {
             logsActionFilter = 'delete';
+            logsCurrentPage = 1;
             applyLogsFilter();
         });
     }
@@ -1488,9 +1498,11 @@ function initializeAuthListeners() {
         }
 
         try {
+            markLoginAttempt();
             await auth.signInWithEmailAndPassword(loginEmail.value.trim(), loginPassword.value);
             loginForm.reset();
         } catch (error) {
+            clearLoginMarker();
             loginError.textContent = 'Falha no login. Verifique e-mail e senha.';
             console.error(error);
         }
@@ -1499,6 +1511,7 @@ function initializeAuthListeners() {
     logoutBtn.addEventListener('click', async () => {
         if (!auth) return;
         await auth.signOut();
+        clearLoginMarker();
         clearSessionDeadline();
         clearSessionCountdown();
         currentOperationId = null;
@@ -1657,6 +1670,34 @@ function resetSessionCountdown() {
     startSessionCountdown();
 }
 
+function markLoginAttempt() {
+    try {
+        sessionStorage.setItem(LOGIN_MARKER_KEY, String(Date.now()));
+    } catch (error) {
+        console.warn('Não foi possível marcar login:', error);
+    }
+}
+
+function consumeLoginMarker() {
+    try {
+        const marker = sessionStorage.getItem(LOGIN_MARKER_KEY);
+        if (!marker) return false;
+        sessionStorage.removeItem(LOGIN_MARKER_KEY);
+        return true;
+    } catch (error) {
+        console.warn('Não foi possível validar login:', error);
+        return false;
+    }
+}
+
+function clearLoginMarker() {
+    try {
+        sessionStorage.removeItem(LOGIN_MARKER_KEY);
+    } catch (error) {
+        console.warn('Não foi possível limpar marca de login:', error);
+    }
+}
+
 function closeProfileMenu() {
     if (!profileMenu || !profileMenuBtn) return;
     profileMenu.classList.add('hidden');
@@ -1675,6 +1716,8 @@ function resetUserProfileState() {
     usersCache = [];
     editingUserId = null;
     logsCache = [];
+    logsCacheTimestamp = 0;
+    logsCurrentPage = 1;
     closeAdminMenu();
     closeProfileMenu();
     closeUserCreateModal();
@@ -1713,10 +1756,12 @@ function resetUserProfileState() {
     }
 }
 
-async function initializeUserProfileFlow(user) {
+async function initializeUserProfileFlow(user, shouldRegisterAccess = false) {
     if (!db || !user) return;
     await ensureUserProfile(user);
-    await registerAccessLog(user);
+    if (shouldRegisterAccess) {
+        await registerAccessLog(user);
+    }
 }
 
 function getUsersCollection() {
@@ -4367,7 +4412,8 @@ function getChangedOperationFields(previousData, nextData) {
 
 async function loadLogsList(force = false) {
     if (!db || !auth || !auth.currentUser || !isAdmin || isLoadingLogs) return;
-    if (logsCache.length > 0 && !force) {
+    const isCacheFresh = Date.now() - logsCacheTimestamp < LOGS_CACHE_TTL;
+    if (logsCache.length > 0 && !force && isCacheFresh) {
         applyLogsFilter();
         return;
     }
@@ -4380,9 +4426,11 @@ async function loadLogsList(force = false) {
     try {
         const snapshot = await getAccessLogsCollection()
             .orderBy('createdAt', 'desc')
-            .limit(logsCurrentLimit || 100)
+            .limit(LOGS_FETCH_LIMIT)
             .get();
         logsCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        logsCacheTimestamp = Date.now();
+        logsCurrentPage = 1;
         applyLogsFilter();
     } catch (error) {
         console.error('Erro ao carregar logs:', error);
@@ -4398,11 +4446,21 @@ function renderLogsTable(logs) {
     if (!logsTableBody) return;
     if (!logs.length) {
         logsTableBody.innerHTML = '<tr><td colspan="8">Nenhum log encontrado.</td></tr>';
+        if (logsPagination) {
+            logsPagination.innerHTML = '';
+        }
         return;
     }
 
+    const totalPages = Math.ceil(logs.length / LOGS_PAGE_SIZE);
+    if (logsCurrentPage > totalPages) {
+        logsCurrentPage = totalPages;
+    }
+    const startIndex = (logsCurrentPage - 1) * LOGS_PAGE_SIZE;
+    const pageItems = logs.slice(startIndex, startIndex + LOGS_PAGE_SIZE);
+
     logsTableBody.innerHTML = '';
-    logs.forEach(log => {
+    pageItems.forEach(log => {
         const actionLabel = getLogActionLabel(log.action);
         const operationInfo = log.operationNumber || log.operationId || '-';
         const justification = log.justification || '-';
@@ -4419,6 +4477,46 @@ function renderLogsTable(logs) {
         `;
         logsTableBody.appendChild(tr);
     });
+
+    renderLogsPagination(totalPages);
+}
+
+function renderLogsPagination(totalPages) {
+    if (!logsPagination) return;
+    logsPagination.innerHTML = '';
+    if (totalPages <= 1) return;
+
+    const prevBtn = document.createElement('button');
+    prevBtn.className = 'pagination-btn';
+    prevBtn.textContent = 'Anterior';
+    prevBtn.disabled = logsCurrentPage === 1;
+    prevBtn.addEventListener('click', () => {
+        logsCurrentPage -= 1;
+        applyLogsFilter();
+    });
+    logsPagination.appendChild(prevBtn);
+
+    for (let i = 1; i <= totalPages; i += 1) {
+        const pageBtn = document.createElement('button');
+        pageBtn.className = 'pagination-btn';
+        if (i === logsCurrentPage) pageBtn.classList.add('active');
+        pageBtn.textContent = String(i);
+        pageBtn.addEventListener('click', () => {
+            logsCurrentPage = i;
+            applyLogsFilter();
+        });
+        logsPagination.appendChild(pageBtn);
+    }
+
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'pagination-btn';
+    nextBtn.textContent = 'Próximo';
+    nextBtn.disabled = logsCurrentPage === totalPages;
+    nextBtn.addEventListener('click', () => {
+        logsCurrentPage += 1;
+        applyLogsFilter();
+    });
+    logsPagination.appendChild(nextBtn);
 }
 
 function getLogActionLabel(action) {
@@ -4428,6 +4526,15 @@ function getLogActionLabel(action) {
     if (action === 'report-issued') return 'Emissão de relatório';
     if (action === 'delete-user') return 'Exclusão de usuário';
     return action;
+}
+
+function matchesLogFilter(action) {
+    const normalized = (action || 'login').toLowerCase();
+    if (logsActionFilter === 'access') return normalized === 'login';
+    if (logsActionFilter === 'report') return normalized === 'report-issued';
+    if (logsActionFilter === 'update') return normalized.startsWith('update');
+    if (logsActionFilter === 'delete') return normalized.startsWith('delete');
+    return true;
 }
 
 function applyLogsFilter() {
@@ -4448,19 +4555,7 @@ function applyLogsFilter() {
             endOfDay.setHours(23, 59, 59, 999);
             if (createdAt > endOfDay) return false;
         }
-        if (logsActionFilter === 'access') {
-            return !log.action || log.action === 'login';
-        }
-        if (logsActionFilter === 'report') {
-            return log.action === 'report-issued';
-        }
-        if (logsActionFilter === 'update') {
-            return log.action && log.action.startsWith('update');
-        }
-        if (logsActionFilter === 'delete') {
-            return log.action && log.action.startsWith('delete');
-        }
-        return true;
+        return matchesLogFilter(log.action);
     });
 
     renderLogsTable(filtered);
