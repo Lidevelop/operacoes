@@ -3839,6 +3839,8 @@ async function exportToPDF(operationData) {
     
     // Function to create a professional table
     function createTable(headers, data, colWidths, showTotal = false, totalLabel = '') {
+        const lineHeight = 5;
+        const minRowHeight = 7;
         // Sempre desenha o cabeçalho antes de cada página
         function drawTableHeader() {
             doc.setFillColor(30, 58, 95);
@@ -3860,8 +3862,15 @@ async function exportToPDF(operationData) {
         doc.setFontSize(10);
 
         data.forEach((row, rowIndex) => {
+            const linesPerCell = row.map((cell, idx) => {
+                const cellContent = cell || '-';
+                return doc.splitTextToSize(cellContent, colWidths[idx] - 4);
+            });
+            const maxLines = Math.max(1, ...linesPerCell.map(lines => lines.length));
+            const rowHeight = Math.max(minRowHeight, (lineHeight * maxLines) + 2);
+
             // Se não couber mais uma linha, quebra a página e redesenha o cabeçalho
-            if (yPos + 7 > pageHeight - bottomMargin) {
+            if (yPos + rowHeight > pageHeight - bottomMargin) {
                 doc.addPage();
                 yPos = margin;
                 addPageHeader();
@@ -3873,17 +3882,18 @@ async function exportToPDF(operationData) {
             // Alternate row colors
             if (rowIndex % 2 === 0) {
                 doc.setFillColor(245, 245, 245);
-                doc.rect(margin, yPos, contentWidth, 7, 'F');
+                doc.rect(margin, yPos, contentWidth, rowHeight, 'F');
             }
             // Add row content
             let xPos = margin;
-            for (let i = 0; i < row.length; i++) {
-                const cellContent = row[i] || '-';
-                const lines = doc.splitTextToSize(cellContent, colWidths[i] - 4);
-                doc.text(lines[0] || '-', xPos + 2, yPos + 4.5);
+            for (let i = 0; i < linesPerCell.length; i++) {
+                const lines = linesPerCell[i];
+                lines.forEach((line, lineIndex) => {
+                    doc.text(line, xPos + 2, yPos + 4 + (lineHeight * lineIndex));
+                });
                 xPos += colWidths[i];
             }
-            yPos += 7;
+            yPos += rowHeight;
         });
 
         yPos += 8;
