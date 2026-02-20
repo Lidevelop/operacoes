@@ -3411,10 +3411,25 @@ function renderOperationsList(operations) {
 
     operationsList.querySelectorAll('button[data-action="pdf"]').forEach(button => {
         button.addEventListener('click', async () => {
+            if (button.disabled) return;
             const id = button.getAttribute('data-id');
             const operation = operationsCache.find(item => item.id === id);
             if (operation) {
-                await exportToPDF(operation);
+                const originalHtml = button.innerHTML;
+                button.disabled = true;
+                button.classList.add('is-loading');
+                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Gerando PDF...';
+
+                try {
+                    await exportToPDF(operation);
+                } catch (error) {
+                    console.error('Erro ao gerar PDF:', error);
+                    alert('Falha ao gerar o PDF. Tente novamente.');
+                } finally {
+                    button.disabled = false;
+                    button.classList.remove('is-loading');
+                    button.innerHTML = originalHtml;
+                }
             }
         });
     });

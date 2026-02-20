@@ -954,6 +954,13 @@ table select:focus {
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
+.btn-small:disabled,
+.btn-small.is-loading {
+    opacity: 0.75;
+    cursor: progress;
+    transform: none;
+}
+
 .btn-danger {
     background: linear-gradient(135deg, var(--danger) 0%, #c82333 100%);
 }
