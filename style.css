@@ -300,6 +300,26 @@ body {
     margin-bottom: 1.5rem;
 }
 
+.refresh-operations-info {
+    display: block;
+    margin-top: 0.35rem;
+    min-height: 1rem;
+    font-size: 0.78rem;
+    color: #5f6b7a;
+}
+
+.refresh-operations-info.is-success {
+    color: var(--success);
+}
+
+.refresh-operations-info.is-warning {
+    color: #a46a00;
+}
+
+.refresh-operations-info.is-error {
+    color: var(--danger);
+}
+
 .operations-list {
     display: grid;
     gap: 1.2rem;

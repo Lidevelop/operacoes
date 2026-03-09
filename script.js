@@ -41,6 +41,7 @@ let currentOperationId = null;
 let operationsCache = [];
 let isLoadingOperations = false;
 let forcedOperationIdFilter = null;
+let lastRefreshOperationsDbUpdateAt = 0;
 let idleTimeoutId = null;
 const IDLE_LIMIT_MS = 30 * 60 * 1000;
 const SESSION_COUNTDOWN_MS = 60 * 60 * 1000; // 1 hora
@@ -54,6 +55,7 @@ const LOGS_PAGE_SIZE = 20;
 const LOGS_FETCH_LIMIT = 200;
 let logsCurrentPage = 1;
 const LOGS_CACHE_TTL = 2 * 60 * 1000; // 2 minutos
+const OPERATIONS_DB_REFRESH_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutos
 const LOGIN_MARKER_KEY = 'pmaracaju_login_marker';
 
 // DOM Elements
@@ -84,6 +86,7 @@ const filterText = document.getElementById('filterText');
 const filterDateFrom = document.getElementById('filterDateFrom');
 const filterDateTo = document.getElementById('filterDateTo');
 const refreshOperations = document.getElementById('refreshOperations');
+const refreshOperationsInfo = document.getElementById('refreshOperationsInfo');
 const formInputs = document.querySelectorAll('#operationFormView input, #operationFormView textarea, #operationFormView select');
 const saveIndicator = document.getElementById('saveIndicator');
 const saveStatus = document.getElementById('saveStatus');
@@ -221,11 +224,31 @@ const CLASSE_OPTIONS = [
     'GM'
 ];
 
+function parseLocalDateInput(dateString) {
+    if (!dateString || typeof dateString !== 'string') return null;
+    const match = dateString.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(year, month - 1, day);
+
+    if (
+        Number.isNaN(date.getTime()) ||
+        date.getFullYear() !== year ||
+        date.getMonth() !== month - 1 ||
+        date.getDate() !== day
+    ) {
+        return null;
+    }
+
+    return date;
+}
+
 const EVENT_TYPES_COLLECTION = 'settings';
 const EVENT_TYPES_DOC_ID = 'eventTypes';
 const OPERATION_COUNTER_COLLECTION = 'counters';
-const OPERATION_COUNTER_DOC_PREFIX = 'operations_';
-const RESERVED_OPERATION_KEY = 'pmaracaju_reserved_operation_number';
 const OPERATION_COUNTER_MIGRATION_KEY = 'pmaracaju_operation_counter_migrated_at';
 let operationCounterInitPromise = null;
 const FORM_STORAGE_KEY = 'pmaracaju_operation_form_v2';
@@ -1289,13 +1312,36 @@ function initializeEventListeners() {
             applyOperationsFilter();
         });
     });
-    refreshOperations.addEventListener('click', () => {
+    refreshOperations.addEventListener('click', async () => {
         filterText.value = '';
         filterDateFrom.value = '';
         filterDateTo.value = '';
         forcedOperationIdFilter = null;
         operationsCurrentPage = 1;
-        loadOperationsList(true);
+
+        const shouldRefreshFromDb = shouldForceOperationsDbRefresh();
+        const result = await loadOperationsList(shouldRefreshFromDb);
+
+        if (!result || !result.success) {
+            setOperationsRefreshInfo('Falha ao atualizar a lista.', 'error');
+            return;
+        }
+
+        if (shouldRefreshFromDb && result.source === 'db') {
+            lastRefreshOperationsDbUpdateAt = Date.now();
+            setOperationsRefreshInfo('Atualizado do banco de dados agora.', 'success');
+            return;
+        }
+
+        if (result.source === 'cache') {
+            const elapsedMs = Date.now() - lastRefreshOperationsDbUpdateAt;
+            const remainingMs = Math.max(0, OPERATIONS_DB_REFRESH_COOLDOWN_MS - elapsedMs);
+            const remainingSeconds = Math.ceil(remainingMs / 1000);
+            setOperationsRefreshInfo(`Atualizado do cache. Banco em ${remainingSeconds}s.`, 'warning');
+            return;
+        }
+
+        setOperationsRefreshInfo('Atualizado com sucesso.', 'success');
     });
 
     if (usersSearchInput) {
@@ -3278,10 +3324,12 @@ async function saveOperationToFirebase(formData) {
 }
 
 async function loadOperationsList(force = false) {
-    if (!db || !auth || !auth.currentUser || isLoadingOperations) return;
+    if (!db || !auth || !auth.currentUser || isLoadingOperations) {
+        return { success: false, source: 'blocked' };
+    }
     if (operationsCache.length > 0 && !force) {
         applyOperationsFilter();
-        return;
+        return { success: true, source: 'cache' };
     }
 
     isLoadingOperations = true;
@@ -3296,19 +3344,63 @@ async function loadOperationsList(force = false) {
         operationsCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         operationsCurrentPage = 1;
         applyOperationsFilter();
+        return { success: true, source: 'db' };
     } catch (error) {
         console.error('Erro ao carregar operações:', error);
         operationsList.innerHTML = '<div class="operation-empty">Falha ao carregar operações.</div>';
         operationsPagination.innerHTML = '';
+        return { success: false, source: 'db' };
     } finally {
         isLoadingOperations = false;
     }
 }
 
+function getOperationDateTimestamp(operation) {
+    if (!operation) return 0;
+    if (operation.operationDate) {
+        const localDate = parseLocalDateInput(operation.operationDate);
+        if (localDate) return localDate.getTime();
+
+        const normalizedDate = normalizeTimestamp(operation.operationDate);
+        if (normalizedDate) return normalizedDate.getTime();
+    }
+    if (operation.updatedAt?.toDate) return operation.updatedAt.toDate().getTime();
+    if (operation.createdAt?.toDate) return operation.createdAt.toDate().getTime();
+    return 0;
+}
+
+function getOperationNumberRank(operation) {
+    if (!operation || !operation.operationNumber) return 0;
+    const number = String(operation.operationNumber);
+    const parts = number.match(/\d+/g);
+    if (!parts || !parts.length) return 0;
+
+    // Prioriza ano e sequencia para manter numeros mais novos no topo.
+    if (parts.length >= 2) {
+        const sequence = Number(parts[0]) || 0;
+        const year = Number(parts[1]) || 0;
+        return (year * 1000000) + sequence;
+    }
+    return Number(parts[0]) || 0;
+}
+
+function shouldForceOperationsDbRefresh() {
+    return (Date.now() - lastRefreshOperationsDbUpdateAt) >= OPERATIONS_DB_REFRESH_COOLDOWN_MS;
+}
+
+function setOperationsRefreshInfo(text, type = 'neutral') {
+    if (!refreshOperationsInfo) return;
+    refreshOperationsInfo.textContent = text;
+    refreshOperationsInfo.classList.remove('is-success', 'is-warning', 'is-error');
+    if (type === 'success') refreshOperationsInfo.classList.add('is-success');
+    if (type === 'warning') refreshOperationsInfo.classList.add('is-warning');
+    if (type === 'error') refreshOperationsInfo.classList.add('is-error');
+}
+
 function applyOperationsFilter() {
     const textValue = (filterText.value || '').toLowerCase();
-    const dateFrom = filterDateFrom.value ? new Date(filterDateFrom.value) : null;
-    const dateTo = filterDateTo.value ? new Date(filterDateTo.value) : null;
+    const dateFrom = filterDateFrom.value ? parseLocalDateInput(filterDateFrom.value) : null;
+    const dateTo = filterDateTo.value ? parseLocalDateInput(filterDateTo.value) : null;
 
     const filtered = operationsCache.filter(operation => {
         if (forcedOperationIdFilter && operation.id !== forcedOperationIdFilter) return false;
@@ -3332,13 +3424,23 @@ function applyOperationsFilter() {
         if (textValue && !searchText.includes(textValue)) return false;
 
         if (dateFrom || dateTo) {
-            const operationDate = operation.operationDate ? new Date(operation.operationDate) : null;
+            const operationDate = operation.operationDate ? parseLocalDateInput(operation.operationDate) : null;
             if (!operationDate) return false;
             if (dateFrom && operationDate < dateFrom) return false;
             if (dateTo && operationDate > dateTo) return false;
         }
 
         return true;
+    });
+
+    filtered.sort((a, b) => {
+        const dateDiff = getOperationDateTimestamp(b) - getOperationDateTimestamp(a);
+        if (dateDiff !== 0) return dateDiff;
+
+        const numberDiff = getOperationNumberRank(b) - getOperationNumberRank(a);
+        if (numberDiff !== 0) return numberDiff;
+
+        return String(b.id || '').localeCompare(String(a.id || ''));
     });
 
     renderOperationsList(filtered);
@@ -4235,7 +4337,8 @@ Cargo/Função: ${position}`;
 // Helper function to format date
 function formatDate(dateString) {
     if (!dateString) return 'Não informado';
-    const date = new Date(dateString);
+    const date = parseLocalDateInput(dateString) || new Date(dateString);
+    if (Number.isNaN(date.getTime())) return 'Não informado';
     return date.toLocaleDateString('pt-BR');
 }
 
