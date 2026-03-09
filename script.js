@@ -3623,6 +3623,33 @@ function loadImage(src) {
     });
 }
 
+function sanitizeWindowsFileNamePart(value) {
+    const raw = String(value || '').trim();
+    const slashNormalized = raw.replace(/[\\/]/g, '.');
+    const invalidReplaced = slashNormalized.replace(/[:*?"<>|]/g, '.');
+    const compactDots = invalidReplaced.replace(/\.{2,}/g, '.');
+    const compactSpaces = compactDots.replace(/\s+/g, ' ').trim();
+    const withoutTrailing = compactSpaces.replace(/[.\s]+$/g, '');
+    return withoutTrailing || 'Não informado';
+}
+
+function formatDateForFileName(dateValue) {
+    if (!dateValue) return 'Não informado';
+    const date = new Date(`${dateValue}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return sanitizeWindowsFileNamePart(dateValue);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}.${month}.${year}`;
+}
+
+function buildOperationPdfFileName(operationData) {
+    const operationNumber = sanitizeWindowsFileNamePart(operationData?.operationNumber || 'Não informado');
+    const operationDate = sanitizeWindowsFileNamePart(formatDateForFileName(operationData?.operationDate));
+    const operationName = sanitizeWindowsFileNamePart(operationData?.operationName || 'Não informado');
+    return `Operação ${operationNumber} - ${operationDate} - ${operationName}.pdf`;
+}
+
 // Nova versão: recebe dados da operação como parâmetro
 async function exportToPDF(operationData) {
     // Create PDF document in A4 format
@@ -3725,9 +3752,7 @@ async function exportToPDF(operationData) {
         yPos = margin;
     }
     
-    // Clean operation name for filename
     const operationName = operationData?.operationName || 'Não informado';
-    const cleanOperationName = operationName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
     
     const logoImage = await loadImage('logo.jpg');
 
@@ -4195,8 +4220,7 @@ Cargo/Função: ${position}`;
                pageWidth / 2, pageHeight - 10, { align: 'center' });
     }
     
-    const dateStr = new Date().toLocaleDateString('pt-BR');
-    const fileName = `Relatorio_Operacao_${cleanOperationName}_${dateStr.replace(/\//g, '-')}.pdf`;
+    const fileName = buildOperationPdfFileName(operationData);
 
     // Save the PDF with cleaned filename
     doc.save(fileName);
