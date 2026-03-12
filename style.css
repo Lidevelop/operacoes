@@ -1206,6 +1206,13 @@ table select:focus {
     box-shadow: none;
 }
 
+.btn-action.is-loading {
+    opacity: 0.75;
+    cursor: progress;
+    transform: none;
+    box-shadow: none;
+}
+
 .btn-export {
     background: linear-gradient(135deg, var(--primary-color) 0%, #2a4a7a 100%);
     color: var(--white);

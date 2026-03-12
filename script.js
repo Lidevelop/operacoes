@@ -194,6 +194,7 @@ const addIncidentBtn = document.getElementById('addIncidentBtn');
 // State variables
 let saveTimeout = null;
 let isSaving = false;
+let isSubmittingOperation = false;
 let sessionIntervalId = null;
 let sessionPrompted = false;
 let areaRows = [];
@@ -1174,32 +1175,48 @@ function initializeEventListeners() {
     
     // Save to Firebase explicitly
     saveDbBtn.addEventListener('click', async () => {
+        if (isSubmittingOperation || saveDbBtn.disabled) return;
         if (!auth || !auth.currentUser) return;
-        await ensureOperationNumberForSave();
-        if (!validateVehicleDistribution()) {
-            saveStatus.textContent = 'Distribua os agentes por viatura antes de salvar.';
-            return;
-        }
-        if (!validateRequiredFields() || !validateIncidentsVTR()) {
-            saveStatus.textContent = 'Preencha os campos obrigatórios antes de salvar. Todas as ocorrências devem ter um Posto/VTR selecionado.';
-            return;
-        }
-        if (!validateOptionalFlags()) {
-            saveStatus.textContent = 'Preencha Ocorrências e Alterações de Serviço ou marque "Sem alteração."';
-            return;
-        }
-        if (!isEditAllowed()) {
-            saveStatus.textContent = 'Edição bloqueada para esta operação.';
-            return;
-        }
-        saveStatus.textContent = 'Salvando no Firebase...';
-        const formData = getFormData();
-        const savedId = await saveOperationToFirebase(formData);
-        if (savedId) {
-            forcedOperationIdFilter = savedId;
-            clearForm();
-            setActiveAppView('manager');
-            loadOperationsList(true);
+
+        const originalButtonHtml = saveDbBtn.innerHTML;
+        isSubmittingOperation = true;
+        saveDbBtn.disabled = true;
+        saveDbBtn.classList.add('is-loading');
+        saveDbBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+
+        try {
+            await ensureOperationNumberForSave();
+            if (!validateVehicleDistribution()) {
+                saveStatus.textContent = 'Distribua os agentes por viatura antes de salvar.';
+                return;
+            }
+            if (!validateRequiredFields() || !validateIncidentsVTR()) {
+                saveStatus.textContent = 'Preencha os campos obrigatórios antes de salvar. Todas as ocorrências devem ter um Posto/VTR selecionado.';
+                return;
+            }
+            if (!validateOptionalFlags()) {
+                saveStatus.textContent = 'Preencha Ocorrências e Alterações de Serviço ou marque "Sem alteração."';
+                return;
+            }
+            if (!isEditAllowed()) {
+                saveStatus.textContent = 'Edição bloqueada para esta operação.';
+                return;
+            }
+
+            saveStatus.textContent = 'Salvando no Firebase...';
+            const formData = getFormData();
+            const savedId = await saveOperationToFirebase(formData);
+            if (savedId) {
+                forcedOperationIdFilter = savedId;
+                clearForm();
+                setActiveAppView('manager');
+                loadOperationsList(true);
+            }
+        } finally {
+            isSubmittingOperation = false;
+            saveDbBtn.classList.remove('is-loading');
+            saveDbBtn.innerHTML = originalButtonHtml;
+            saveDbBtn.disabled = !isEditAllowed();
         }
     });
     
