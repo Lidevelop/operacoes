@@ -249,7 +249,9 @@ function parseLocalDateInput(dateString) {
 const EVENT_TYPES_COLLECTION = 'settings';
 const EVENT_TYPES_DOC_ID = 'eventTypes';
 const OPERATION_COUNTER_COLLECTION = 'counters';
+const OPERATION_COUNTER_DOC_PREFIX = '';
 const OPERATION_COUNTER_MIGRATION_KEY = 'pmaracaju_operation_counter_migrated_at';
+const RESERVED_OPERATION_KEY = 'pmaracaju_reserved_operation_number';
 let operationCounterInitPromise = null;
 const FORM_STORAGE_KEY = 'pmaracaju_operation_form_v2';
 const LEGACY_FORM_STORAGE_KEY = 'policiaMunicipalOperacaoForm';
@@ -671,7 +673,8 @@ function isOperationNumberValid(value) {
 }
 
 function parseOperationNumber(value) {
-    const match = String(value || '').trim().match(/^(\d{4})\/(\d{4})$/);
+    // Aceita formatos legados (ex.: 1/2026, 12/2026) para manter a sequência.
+    const match = String(value || '').trim().match(/^(\d{1,6})\s*\/\s*(\d{4})$/);
     if (!match) {
         return { sequence: null, year: null };
     }
@@ -821,6 +824,58 @@ function getMaxSequenceFromCache(targetYear) {
         }
     });
     return maxSequence;
+}
+
+function getOperationYearValue(operation) {
+    const parsedYear = parseInt(operation?.operationYear, 10);
+    if (!Number.isNaN(parsedYear) && parsedYear > 0) {
+        return parsedYear;
+    }
+    return parseOperationNumber(operation?.operationNumber).year;
+}
+
+async function syncOperationCounterForYear(year) {
+    if (!db || !year) return;
+
+    const maxExisting = getMaxSequenceFromCache(year);
+    const counterRef = db.collection(OPERATION_COUNTER_COLLECTION).doc(`${OPERATION_COUNTER_DOC_PREFIX}${year}`);
+
+    try {
+        await db.runTransaction(async (transaction) => {
+            const snapshot = await transaction.get(counterRef);
+            let stored = 0;
+            if (snapshot.exists) {
+                const data = snapshot.data() || {};
+                const parsed = parseInt(data.lastSequence ?? data.current, 10);
+                if (!Number.isNaN(parsed)) {
+                    stored = parsed;
+                }
+            }
+
+            if (!snapshot.exists || stored !== maxExisting) {
+                transaction.set(counterRef, {
+                    lastSequence: maxExisting,
+                    year,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            }
+        });
+    } catch (error) {
+        console.error('Erro ao sincronizar contador da operação:', error);
+    }
+}
+
+async function syncCurrentYearCounterAndRefreshPreview() {
+    if (currentOperationId) return;
+
+    const year = getOperationYearForNew();
+    const reserved = getReservedOperationNumber();
+    if (reserved && reserved.year !== year) {
+        clearReservedOperationNumber();
+    }
+
+    await syncOperationCounterForYear(year);
+    await loadNextOperationNumberPreview();
 }
 
 function shouldAssignOperationNumber() {
@@ -1203,14 +1258,17 @@ function initializeEventListeners() {
 
     // Revalidate edit window when date changes
     const operationDateInput = document.getElementById('operationDate');
-    operationDateInput.addEventListener('change', () => {
+    operationDateInput.addEventListener('change', async () => {
         enforceEditWindow();
+        if (!currentOperationId) {
+            await syncCurrentYearCounterAndRefreshPreview();
+        }
     });
 
     // App navigation
     currentOperationBtn.addEventListener('click', () => setActiveAppView('form'));
-    newOperationBtn.addEventListener('click', () => {
-        confirmNewOperation();
+    newOperationBtn.addEventListener('click', async () => {
+        await confirmNewOperation();
         setActiveAppView('form');
     });
     viewManagerBtn.addEventListener('click', () => setActiveAppView('manager'));
@@ -1582,11 +1640,12 @@ function showAppView() {
     resetIdleTimer();
 }
 
-function confirmNewOperation() {
+async function confirmNewOperation() {
     const confirmed = window.confirm('Deseja iniciar um novo evento? Isso limpará o formulário atual.');
     if (!confirmed) return;
-    clearForm();
+    clearForm({ refreshOperationNumber: false });
     currentOperationId = null;
+    await syncCurrentYearCounterAndRefreshPreview();
     currentOperationBtn.classList.remove('active');
     newOperationBtn.classList.add('active');
 }
@@ -3542,6 +3601,7 @@ function renderOperationsList(operations) {
             const id = button.getAttribute('data-id');
             const operation = operationsCache.find(item => item.id === id);
             if (!operation) return;
+            const operationYear = getOperationYearValue(operation);
 
             const justification = prompt('Informe a justificativa para excluir este registro:');
             if (!justification || !justification.trim()) return;
@@ -3549,6 +3609,9 @@ function renderOperationsList(operations) {
             try {
                 await db.collection('operations').doc(id).delete();
                 operationsCache = operationsCache.filter(item => item.id !== id);
+                if (operationYear) {
+                    await syncOperationCounterForYear(operationYear);
+                }
                 if (forcedOperationIdFilter === id) {
                     forcedOperationIdFilter = null;
                 }
@@ -3645,7 +3708,8 @@ function formatTime(date) {
 }
 
 // Clear form data
-function clearForm() {
+function clearForm(options = {}) {
+    const { refreshOperationNumber = true } = options;
         currentOperationMeta = null;
     // Clear all form inputs
     formInputs.forEach(input => {
@@ -3663,8 +3727,8 @@ function clearForm() {
     }
     clearReservedOperationNumber();
     
-    // Clear date/time fields explicitly
-    document.getElementById('operationDate').value = '';
+    // Clear time fields and reset date to today for new-operation numbering by year.
+    document.getElementById('operationDate').value = new Date().toISOString().split('T')[0];
     document.getElementById('startTime').value = '';
     document.getElementById('endTime').value = '';
     
@@ -3701,6 +3765,9 @@ function clearForm() {
     // Clear localStorage
     localStorage.removeItem(FORM_STORAGE_KEY);
     currentOperationId = null;
+    if (refreshOperationNumber) {
+        loadNextOperationNumberPreview();
+    }
     
     // Close modal
     confirmationModal.style.display = 'none';
