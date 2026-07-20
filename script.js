@@ -256,7 +256,7 @@ const RESERVED_OPERATION_KEY = 'pmaracaju_reserved_operation_number';
 let operationCounterInitPromise = null;
 const FORM_STORAGE_KEY = 'pmaracaju_operation_form_v2';
 const LEGACY_FORM_STORAGE_KEY = 'policiaMunicipalOperacaoForm';
-const SUMMARY_TEMPLATE_TEXT = `Durante o período programado, as equipes da Polícia Municipal estiveram presentes no local designado, realizando patrulhamento preventivo e acompanhamento das atividades relacionadas ao evento/operação. As ações foram executadas conforme o planejamento estabelecido, com foco na preservação da ordem pública, na segurança dos participantes e na proteção do patrimônio.
+const SUMMARY_TEMPLATE_TEXT = `Durante o período programado, as equipes da Guarda Municipal estiveram presentes no local designado, realizando patrulhamento preventivo e acompanhamento das atividades relacionadas ao evento/operação. As ações foram executadas conforme o planejamento estabelecido, com foco na preservação da ordem pública, na segurança dos participantes e na proteção do patrimônio.
 
 Foram realizadas rondas periódicas, orientações ao público quando necessário e monitoramento contínuo das áreas relatadas. Não houve intercorrências relevantes. As ocorrências registradas nas seções anteriores do relatório, quando existentes, foram devidamente atendidas e solucionadas pela equipe no local.
 
