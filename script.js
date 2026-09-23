@@ -3933,7 +3933,7 @@ async function exportToPDF(operationData) {
     function addPageHeader() {
         doc.setFontSize(10);
         doc.setTextColor(100, 100, 100);
-        doc.text(`Polícia Municipal de Aracaju - Relatório de Operação - Página ${doc.getNumberOfPages()}`, margin, 15);
+        doc.text(`Guarda Municipal de Aracaju - Relatório de Operação - Página ${doc.getNumberOfPages()}`, margin, 15);
         doc.line(margin, 18, pageWidth - margin, 18);
         yPos = margin;
     }
@@ -3969,7 +3969,7 @@ async function exportToPDF(operationData) {
     const subtitleY = titleY + 10;
     setFontSize(22);
     setFontStyle('bold');
-    doc.text('POLÍCIA MUNICIPAL DE ARACAJU', pageWidth / 2, titleY, { align: 'center' });
+    doc.text('GUARDA MUNICIPAL DE ARACAJU', pageWidth / 2, titleY, { align: 'center' });
     
     setFontSize(18);
     doc.text('RELATÓRIO DE OPERAÇÃO', pageWidth / 2, subtitleY, { align: 'center' });
@@ -4402,7 +4402,7 @@ Cargo/Função: ${position}`;
         
         // Footer text
         setFontSize(8);
-        doc.text('Polícia Municipal de Aracaju - Gestão de Operações - © 2026', 
+        doc.text('Guarda Municipal de Aracaju - Gestão de Operações - © 2026', 
                pageWidth / 2, pageHeight - 10, { align: 'center' });
     }
     
